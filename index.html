@@ -164,7 +164,7 @@ function start() {
   db.collection("users").doc(me.uid).set({ name: me.name, nameLower: clean(me.name) }, { merge: true }).catch(() => {});
   listUn && listUn();
   listUn = db.collection("conversations").where("members", "array-contains", me.uid).onSnapshot(s => {
-    convs = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.seconds || 9e9) - (a.createdAt?.seconds || 9e9));
+    convs = s.docs.filter(d => !d.metadata.hasPendingWrites).map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.seconds || 9e9) - (a.createdAt?.seconds || 9e9));
     drawList();
     if (cur) { const c = convs.find(x => x.id === cur.id); if (c) { const was = !!(cur.mc && cur.mc.paired); cur = c; head(); if (tab === "srv" && cur.type === "mc" && was !== !!(c.mc && c.mc.paired)) show(); } }
   }, e => toast("Erreur : " + e.message));
@@ -222,11 +222,15 @@ function vChat(v) {
   }));
 }
 async function addMember() {
-  const n = prompt("Nom d’utilisateur à ajouter :"); if (!n) return;
-  const s = await db.collection("users").where("nameLower", "==", clean(n)).get();
-  if (s.empty) return toast("Aucun utilisateur avec ce nom.");
-  const d = s.docs[0]; await db.collection("conversations").doc(cur.id).update({ members: FV.arrayUnion(d.id), ["names." + d.id]: d.data().name });
-  toast(d.data().name + " ajouté.");
+  const raw = prompt("Nom d’utilisateur à ajouter :"); if (!raw || !clean(raw)) return;
+  try {
+    const s = await db.collection("users").where("nameLower", "==", clean(raw)).get();
+    if (s.empty) return toast("Aucun utilisateur « " + raw.trim() + " ». Il doit s’être connecté au moins une fois.");
+    const d = s.docs[0];
+    if (cur.members.includes(d.id)) return toast(d.data().name + " est déjà dans le groupe.");
+    await db.collection("conversations").doc(cur.id).update({ members: FV.arrayUnion(d.id), ["names." + d.id]: d.data().name });
+    toast(d.data().name + " ajouté.");
+  } catch (x) { toast("Impossible d’ajouter : " + x.message); }
 }
 
 /* ---------- Création ---------- */
@@ -247,7 +251,7 @@ $("#nw").onclick = () => {
       const members = [me.uid], ns = { [me.uid]: me.name };
       for (const n of names) { const s = await db.collection("users").where("nameLower", "==", n).get(); if (s.empty) return er.textContent = `« ${n} » n’existe pas.`; members.push(s.docs[0].id); ns[s.docs[0].id] = s.docs[0].data().name; }
       if (kind === "dm") { const ex = convs.find(c => c.type === "dm" && c.members.includes(members[1])); if (ex) { bg.remove(); return open(ex); } }
-      const ref = await db.collection("conversations").add({ type: kind, name: nm.value.trim() || "", members, names: ns, owner: me.uid, createdAt: FV.serverTimestamp(), mc: { paired: false } });
+      const ref = await Promise.race([db.collection("conversations").add({ type: kind, name: nm.value.trim() || "", members, names: ns, owner: me.uid, createdAt: FV.serverTimestamp(), mc: { paired: false } }), new Promise((_, rj) => setTimeout(() => rj(new Error("Firestore ne répond pas : la création du groupe n’a pas été enregistrée. Vérifie que la base Firestore existe et que les règles sont publiées.")), 10000))]);
       bg.remove(); const s = await ref.get(); open({ id: ref.id, ...s.data() });
     } catch (x) { er.textContent = x.message; }
   };
