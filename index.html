@@ -27,7 +27,7 @@ input:focus{outline:2px solid var(--acc);border-color:transparent}
 #auth{height:100%;display:grid;place-items:center;padding:20px;overflow:auto;background:radial-gradient(900px 500px at 15% 0%,color-mix(in srgb,var(--acc) 22%,transparent),transparent),radial-gradient(700px 500px at 100% 100%,color-mix(in srgb,var(--teal) 20%,transparent),transparent)}
 .card{width:100%;max-width:400px;background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:30px;display:flex;flex-direction:column;gap:14px}
 .logo{font-size:30px;font-weight:700;letter-spacing:-.03em}.logo b{color:var(--acc)}
-.sub{color:var(--mut);font-size:14px;line-height:1.5}
+.sub{color:var(--mut);font-size:14px;line-height:1.5;white-space:pre-line}
 .tabs{display:flex;background:var(--panel2);border-radius:12px;padding:4px}
 .tabs button{flex:1;padding:9px;border-radius:9px;color:var(--mut);font-weight:600}
 .tabs button.on{background:var(--panel);color:var(--tx)}
@@ -162,11 +162,13 @@ auth.onAuthStateChanged(u => {
 function start() {
   $("#auth").classList.add("hide"); $("#app").classList.remove("hide"); $("#mn").textContent = me.name;
   db.collection("users").doc(me.uid).set({ name: me.name, nameLower: clean(me.name) }, { merge: true }).catch(() => {});
+  try { me.mcName = localStorage.getItem("mcName") || null; } catch (e) { }
+  db.collection("users").doc(me.uid).get().then(d => { if (d.exists && d.data().mcName) { me.mcName = d.data().mcName; try { localStorage.setItem("mcName", me.mcName); } catch (e) { } } }).catch(() => {});
   listUn && listUn();
   listUn = db.collection("conversations").where("members", "array-contains", me.uid).onSnapshot(s => {
     convs = s.docs.filter(d => !d.metadata.hasPendingWrites).map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.seconds || 9e9) - (a.createdAt?.seconds || 9e9));
     drawList();
-    if (cur) { const c = convs.find(x => x.id === cur.id); if (c) { const was = !!(cur.mc && cur.mc.paired); cur = c; head(); if (tab === "srv" && cur.type === "mc" && was !== !!(c.mc && c.mc.paired)) show(); } }
+    if (cur) { const c = convs.find(x => x.id === cur.id); if (c) { const was = JSON.stringify(cur.mc || {}); cur = c; head(); if (cur.type === "mc" && (tab === "srv" || tab === "world") && was !== JSON.stringify(c.mc || {})) show(); } }
   }, e => toast("Erreur : " + e.message));
   if (!cur) home();
 }
@@ -198,16 +200,40 @@ function shell() {
   const h = el("h2"); h.id = "ct"; t.append(bg, h);
   if (cur.type !== "dm") { const a = el("button", "btn sm ghost", "+ Membre"); a.onclick = addMember; t.append(a); }
   m.append(t);
-  if (cur.type === "mc") { const mt = el("div", "mt"); mt.id = "mt"; [["chat", "Discussion"], ["srv", "Serveur"], ["map", "Carte"], ["adm", "Admin"]].forEach(([k, v]) => { const b = el("button", "", v); b.dataset.k = k; b.onclick = () => { tab = k; show(); }; mt.append(b); }); m.append(mt); }
+  if (cur.type === "mc") { const mt = el("div", "mt"); mt.id = "mt"; [["chat", "Discussion"], ["srv", "Serveur"], ["map", "Carte"], ["world", "Monde"], ["adm", "Admin"]].forEach(([k, v]) => { const b = el("button", "", v); b.dataset.k = k; b.onclick = () => { tab = k; show(); }; mt.append(b); }); m.append(mt); }
   const v = el("div", "view"); v.id = "vw"; m.append(v); head();
 }
 function head() { const h = $("#ct"); if (h) h.textContent = title(cur); }
 function show() {
   stop(); document.querySelectorAll("#mt button").forEach(b => b.classList.toggle("on", b.dataset.k === tab));
   const v = $("#vw"); v.textContent = "";
-  ({ chat: vChat, srv: vSrv, map: vMap, adm: vAdm })[tab](v);
+  ({ chat: vChat, srv: vSrv, map: vMap, world: vWorld, adm: vAdm })[tab](v);
 }
 const sub = c => db.collection("conversations").doc(cur.id).collection(c);
+let lastPlayers = [];
+const watchState = cb => sub("mc").doc("state").onSnapshot(sn => { lastPlayers = (sn.data() && sn.data().players) || []; cb(sn); }, e => toast("Erreur : " + e.message));
+const MCRE = /^[A-Za-z0-9_]{1,16}$/;
+async function saveMc() {
+  const v = prompt("Ton pseudo Minecraft, exactement comme en jeu :", me.mcName || ""); if (v === null) return null;
+  const x = v.trim();
+  if (!MCRE.test(x)) { toast("Pseudo invalide : lettres, chiffres et _ seulement (les pseudos Minecraft n’ont pas de tiret)."); return null; }
+  me.mcName = x; try { localStorage.setItem("mcName", x); } catch (e) { }
+  db.collection("users").doc(me.uid).set({ mcName: x }, { merge: true }).catch(() => {});
+  toast("Pseudo enregistré : " + x); return x;
+}
+async function tpTo(target) {
+  if (!MCRE.test(target)) return;
+  const n = me.mcName || await saveMc(); if (!n) return;
+  if (n.toLowerCase() === target.toLowerCase()) return toast("C’est ton propre personnage.");
+  const mine = lastPlayers.find(p => p.name.toLowerCase() === n.toLowerCase());
+  if (!mine) return toast("« " + n + " » n’est pas connecté sur le serveur. Mauvais pseudo ? Utilise « Mon pseudo » pour le changer.");
+  try { await sub("commands").add({ type: "cmd", arg: "tp " + mine.name + " " + target, by: me.name, status: "pending", createdAt: FV.serverTimestamp() }); toast("Téléportation vers " + target + "…"); } catch (x) { toast(x.message); }
+}
+function playerRows(box, arr) {
+  box.textContent = "";
+  if (!arr.length) { box.append(el("p", "sub", "Personne en ligne.")); return; }
+  arr.forEach(x => { const r = el("div", "pl"), b = el("button", "btn sm ghost", "Se téléporter"); b.onclick = () => tpTo(x.name); r.append(el("span", "", x.name), b); box.append(r); });
+}
 
 /* ---------- Chat ---------- */
 function vChat(v) {
@@ -260,11 +286,12 @@ $("#nw").onclick = () => {
 /* ---------- Serveur Minecraft ---------- */
 function vSrv(v) {
   const p = el("div", "pad"), st = el("div", "box"), pr = el("div", "box"); p.append(st, pr); v.append(p);
-  unsubs.push(sub("mc").doc("state").onSnapshot(s => {
+  unsubs.push(watchState(s => {
     const d = s.data(), on = d && d.online && Date.now() - (d.updatedAt?.toMillis?.() || 0) < 45000; st.textContent = "";
     const h = el("div", "row"), dot = el("span", "dot" + (on ? " ok" : "")); h.append(dot, el("b", "", on ? "Serveur en ligne" : "Serveur hors ligne")); st.append(h);
     st.append(el("p", "sub", on ? `${(d.players || []).length} joueur(s) connecté(s)` + (d.version ? ` · Minecraft ${d.version}` : "") : "Le serveur n’a pas envoyé de signal récemment."));
-    if (on && d.players?.length) d.players.forEach(x => { const r = el("div", "pl"); r.append(el("span", "", x.name)); st.append(r); });
+    if (on && d.players?.length) { const pb = el("div"); playerRows(pb, d.players); st.append(pb); }
+    const mb = el("button", "btn sm ghost", me.mcName ? "Mon pseudo : " + me.mcName : "Définir mon pseudo Minecraft"); mb.onclick = async () => { if (await saveMc()) show(); }; st.append(mb);
   }, e => toast("Erreur : " + e.message)));
   const paired = cur.mc && cur.mc.paired;
   pr.append(el("b", "", paired ? "Serveur connecté au groupe" : "Connecter ton serveur"));
@@ -293,20 +320,72 @@ function vSrv(v) {
 
 /* ---------- Carte ---------- */
 function vMap(v) {
-  const p = el("div", "pad"), cv = el("canvas"); cv.id = "map"; p.append(cv, el("p", "sub", "Positions en direct des joueurs (vue du dessus, axes X et Z).")); v.append(p);
-  let pl = [];
-  const draw = () => {
-    const r = cv.getBoundingClientRect(), dp = devicePixelRatio || 1; cv.width = r.width * dp; cv.height = r.height * dp;
-    const g = cv.getContext("2d"), cs = getComputedStyle(document.body); g.scale(dp, dp); g.clearRect(0, 0, r.width, r.height);
-    const W = r.width, H = r.height; let ext = 64; pl.forEach(x => ext = Math.max(ext, Math.abs(x.x), Math.abs(x.z)));
-    ext = Math.ceil(ext * 1.25 / 32) * 32; const k = Math.min(W, H) / 2 / ext, line = getComputedStyle(document.documentElement).getPropertyValue("--line"), mut = getComputedStyle(document.documentElement).getPropertyValue("--mut"), acc = getComputedStyle(document.documentElement).getPropertyValue("--acc"), tx = getComputedStyle(document.documentElement).getPropertyValue("--tx");
-    g.strokeStyle = line; g.lineWidth = 1; for (let i = -ext; i <= ext; i += ext > 256 ? 64 : 32) { g.beginPath(); g.moveTo(W / 2 + i * k, 0); g.lineTo(W / 2 + i * k, H); g.moveTo(0, H / 2 + i * k); g.lineTo(W, H / 2 + i * k); g.stroke(); }
-    g.strokeStyle = mut; g.beginPath(); g.moveTo(W / 2, 0); g.lineTo(W / 2, H); g.moveTo(0, H / 2); g.lineTo(W, H / 2); g.stroke();
-    g.font = "600 12px Sora,sans-serif"; pl.forEach(x => { const px = W / 2 + x.x * k, py = H / 2 + x.z * k; g.fillStyle = acc; g.beginPath(); g.arc(px, py, 7, 0, 7); g.fill(); g.fillStyle = tx; g.fillText(x.name, px + 11, py + 4); });
-    if (!pl.length) { g.fillStyle = mut; g.textAlign = "center"; g.fillText("Aucun joueur connecté", W / 2, H / 2 - 14); }
+  const p = el("div", "pad"), bar = el("div", "row"), cv = el("canvas"), box = el("div", "box");
+  cv.id = "map"; cv.style.cssText = "touch-action:none;cursor:grab";
+  let pl = [], V = { x: 0, z: 0, k: 2 }, fitted = false, hits = [];
+  const size = () => cv.getBoundingClientRect();
+  const css = n => getComputedStyle(document.documentElement).getPropertyValue(n);
+  const fit = () => {
+    const r = size(); if (!pl.length) { V = { x: 0, z: 0, k: 2 }; return; }
+    let a = 1e9, b = -1e9, c = 1e9, d = -1e9; pl.forEach(q => { a = Math.min(a, q.x); b = Math.max(b, q.x); c = Math.min(c, q.z); d = Math.max(d, q.z); });
+    V.x = (a + b) / 2; V.z = (c + d) / 2; V.k = Math.min(8, Math.max(.05, Math.min(r.width, r.height) * .7 / Math.max(b - a, d - c, 40)));
   };
-  unsubs.push(sub("mc").doc("state").onSnapshot(s => { pl = (s.data()?.players) || []; draw(); }));
+  const draw = () => {
+    const r = size(), dp = devicePixelRatio || 1; cv.width = r.width * dp; cv.height = r.height * dp;
+    const g = cv.getContext("2d"), W = r.width, H = r.height; g.setTransform(dp, 0, 0, dp, 0, 0);
+    const line = css("--line"), mut = css("--mut"), acc = css("--acc"), tx = css("--tx");
+    let step = 1; for (const q of [1, 2, 5, 10, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]) { step = q; if (q * V.k >= 48) break; }
+    const X = x => W / 2 + (x - V.x) * V.k, Z = z => H / 2 + (z - V.z) * V.k;
+    g.font = "11px Sora,sans-serif"; g.lineWidth = 1; g.textAlign = "left";
+    for (let x = Math.floor((V.x - W / 2 / V.k) / step) * step; x <= V.x + W / 2 / V.k; x += step) { g.strokeStyle = x === 0 ? mut : line; g.beginPath(); g.moveTo(X(x), 0); g.lineTo(X(x), H); g.stroke(); g.fillStyle = mut; g.fillText(x, X(x) + 3, 12); }
+    for (let z = Math.floor((V.z - H / 2 / V.k) / step) * step; z <= V.z + H / 2 / V.k; z += step) { g.strokeStyle = z === 0 ? mut : line; g.beginPath(); g.moveTo(0, Z(z)); g.lineTo(W, Z(z)); g.stroke(); g.fillStyle = mut; g.fillText(z, 4, Z(z) - 3); }
+    hits = []; g.font = "600 12px Sora,sans-serif";
+    pl.forEach(q => { const px = X(q.x), py = Z(q.z); hits.push({ name: q.name, x: px, y: py }); g.fillStyle = acc; g.beginPath(); g.arc(px, py, 8, 0, 7); g.fill(); g.strokeStyle = tx; g.lineWidth = 2; g.stroke(); g.fillStyle = tx; g.fillText(q.name, px + 12, py + 4); });
+    if (!pl.length) { g.fillStyle = mut; g.textAlign = "center"; g.fillText("Aucun joueur connecté", W / 2, H / 2); }
+  };
+  const zoom = (f, sx, sy) => {
+    const r = size(); sx = sx ?? r.width / 2; sy = sy ?? r.height / 2;
+    const wx = V.x + (sx - r.width / 2) / V.k, wz = V.z + (sy - r.height / 2) / V.k;
+    V.k = Math.min(60, Math.max(.02, V.k * f)); V.x = wx - (sx - r.width / 2) / V.k; V.z = wz - (sy - r.height / 2) / V.k; draw();
+  };
+  const mk = (t, f) => { const b = el("button", "btn sm ghost", t); b.onclick = f; bar.append(b); };
+  mk("＋", () => zoom(1.4)); mk("－", () => zoom(1 / 1.4)); mk("Centrer sur les joueurs", () => { fit(); draw(); });
+  const ptrs = new Map(); let moved = 0, pd = 0;
+  const two = () => { const a = [...ptrs.values()]; return { d: Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y), x: (a[0].x + a[1].x) / 2, y: (a[0].y + a[1].y) / 2 }; };
+  cv.onpointerdown = e => { cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.offsetX, y: e.offsetY }); moved = 0; cv.style.cursor = "grabbing"; if (ptrs.size === 2) pd = two().d; };
+  cv.onpointermove = e => {
+    const o = ptrs.get(e.pointerId); if (!o) return; const n = { x: e.offsetX, y: e.offsetY };
+    if (ptrs.size === 1) { V.x -= (n.x - o.x) / V.k; V.z -= (n.y - o.y) / V.k; moved += Math.abs(n.x - o.x) + Math.abs(n.y - o.y); ptrs.set(e.pointerId, n); draw(); }
+    else { ptrs.set(e.pointerId, n); const t = two(); if (pd) zoom(t.d / pd, t.x, t.y); pd = t.d; moved = 99; }
+  };
+  cv.onpointerup = cv.onpointercancel = e => {
+    const was = ptrs.size; ptrs.delete(e.pointerId); pd = 0; cv.style.cursor = "grab";
+    if (was === 1 && moved < 6) { let best = null, bd = 18; hits.forEach(h => { const d = Math.hypot(h.x - e.offsetX, h.y - e.offsetY); if (d < bd) { bd = d; best = h; } }); if (best) tpTo(best.name); }
+  };
+  cv.addEventListener("wheel", e => { e.preventDefault(); zoom(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.offsetX, e.offsetY); }, { passive: false });
+  const mb = el("button", "btn sm ghost", me.mcName ? "Mon pseudo : " + me.mcName : "Mon pseudo Minecraft"); mb.onclick = async () => { if (await saveMc()) mb.textContent = "Mon pseudo : " + me.mcName; }; bar.append(mb);
+  p.append(bar, cv, el("p", "sub", "Glisse pour déplacer la carte, molette ou deux doigts pour zoomer. Clique sur un joueur pour te téléporter à lui."), box); v.append(p);
+  unsubs.push(watchState(s => { pl = (s.data() && s.data().players) || []; if (!fitted) { fit(); fitted = pl.length > 0; } draw(); box.textContent = ""; box.append(el("b", "", "Joueurs en ligne")); const l = el("div"); playerRows(l, pl); box.append(l); }));
   addEventListener("resize", draw); unsubs.push(() => removeEventListener("resize", draw)); requestAnimationFrame(draw);
+}
+
+/* ---------- Monde (Squaremap) ---------- */
+function vWorld(v) {
+  const p = el("div", "pad"), b = el("div", "box"), u = cur.mc && cur.mc.mapUrl;
+  b.append(el("b", "", "Carte du monde (Squaremap)"));
+  if (!u) b.append(el("p", "sub", "1. Installe le mod squaremap (Fabric, 26.1.2) sur ton serveur puis redémarre.\n2. Il ouvre une carte web, par défaut sur le port 8080 du serveur.\n3. Entre ici son adresse, par exemple http://mon-serveur:8080"));
+  else {
+    b.append(el("div", "cmd", u));
+    if (u.startsWith("https://")) { const f = el("iframe"); f.src = u; f.style.cssText = "width:100%;height:65vh;border:0;border-radius:12px"; f.setAttribute("loading", "lazy"); b.append(f); }
+    else { const a = el("a", "btn", "Ouvrir la carte dans un nouvel onglet"); a.href = u; a.target = "_blank"; a.rel = "noopener"; a.style.cssText = "text-align:center;text-decoration:none"; b.append(a, el("p", "sub", "Ton site est en https : le navigateur refuse d’afficher une carte en http à l’intérieur de la page, donc elle s’ouvre dans un onglet. Pour l’intégrer ici, il faut une adresse https.")); }
+  }
+  const sb = el("button", "btn ghost", u ? "Changer l’adresse" : "Définir l’adresse");
+  sb.onclick = async () => {
+    const x = prompt("Adresse de la carte (http:// ou https://) :", u || "http://"); if (x === null) return; const t = x.trim();
+    if (t && !/^https?:\/\/[^\s]+$/.test(t)) return toast("Adresse invalide.");
+    try { await db.collection("conversations").doc(cur.id).update({ "mc.mapUrl": t }); toast("Adresse enregistrée."); } catch (e) { toast(e.message); }
+  };
+  b.append(sb); p.append(b); v.append(p);
 }
 
 /* ---------- Admin ---------- */
@@ -327,7 +406,7 @@ function vAdm(v) {
   cf.onsubmit = e => { e.preventDefault(); const t = ci.value.trim().replace(/^\//, ""); if (t) { send("cmd", t); ci.value = ""; } };
   const cc = el("div", "box"); cc.append(el("b", "", "Console"), con, cf);
   p.append(cb, pb, cc); v.append(p);
-  unsubs.push(sub("mc").doc("state").onSnapshot(s => {
+  unsubs.push(watchState(s => {
     pl.textContent = ""; const a = s.data()?.players || [];
     if (!a.length) pl.append(el("p", "sub", "Personne en ligne."));
     a.forEach(x => { const r = el("div", "pl"), k = el("button", "btn sm bad", "Expulser"); k.onclick = () => { const why = prompt("Raison (facultatif) :", ""); if (why !== null) send("kick", x.name + (why ? " " + why : "")); }; r.append(el("span", "", x.name), k); pl.append(r); });
