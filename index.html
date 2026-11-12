@@ -161,6 +161,7 @@ auth.onAuthStateChanged(u => {
 /* ---------- App ---------- */
 function start() {
   $("#auth").classList.add("hide"); $("#app").classList.remove("hide"); $("#mn").textContent = me.name;
+  db.collection("users").doc(me.uid).set({ name: me.name, nameLower: clean(me.name) }, { merge: true }).catch(() => {});
   listUn && listUn();
   listUn = db.collection("conversations").where("members", "array-contains", me.uid).onSnapshot(s => {
     convs = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.seconds || 9e9) - (a.createdAt?.seconds || 9e9));
