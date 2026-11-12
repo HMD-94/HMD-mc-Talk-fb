@@ -23,6 +23,7 @@ button{cursor:pointer;border:0;background:none}
 .btn.sm{padding:7px 12px;font-size:13px;border-radius:9px}
 input{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px 14px;width:100%}
 input:focus{outline:2px solid var(--acc);border-color:transparent}
+select{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px 14px;width:100%}
 /* auth */
 #auth{height:100%;display:grid;place-items:center;padding:20px;overflow:auto;background:radial-gradient(900px 500px at 15% 0%,color-mix(in srgb,var(--acc) 22%,transparent),transparent),radial-gradient(700px 500px at 100% 100%,color-mix(in srgb,var(--teal) 20%,transparent),transparent)}
 .card{width:100%;max-width:400px;background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:30px;display:flex;flex-direction:column;gap:14px}
@@ -187,7 +188,7 @@ function drawList() {
 }
 function home() {
   stop(); cur = null; drawList(); const m = $("#main"); m.textContent = "";
-  const t = el("div", "top"), bg = el("button", "", "☰"); bg.id = "burger"; bg.onclick = () => side(true); t.append(bg, el("h2", "", "Bienvenue " + me.name)); 
+  const t = el("div", "top"), bg = el("button", "", "☰"); bg.id = "burger"; bg.onclick = () => side(true); t.append(bg, el("h2", "", "Bienvenue " + me.name));
   const e = el("div", "empty"); e.append(el("h3", "", "Choisis une conversation"), el("p", "", "Ouvre une discussion dans la liste, ou crée un groupe Minecraft pour connecter ton serveur."));
   m.append(t, e);
 }
@@ -388,6 +389,85 @@ function vWorld(v) {
   b.append(sb); p.append(b); v.append(p);
 }
 
+/* ---------- Vote & Quiz ---------- */
+const QUIZ = [
+  ["Quelle est la capitale de la France ?", "Paris", "Marseille", 1],
+  ["Quel mob explose quand il s’approche de toi ?", "Zombie", "Creeper", 2],
+  ["Quel objet sert à activer le portail de l’End ?", "Œil d’Ender", "Perle de redstone", 1],
+  ["Dans quelle dimension trouve-t-on les Ghasts ?", "L’End", "Le Nether", 2],
+  ["Combien de cœurs de vie a un joueur ?", "10", "20", 1],
+  ["Combien d’obsidienne faut-il au minimum pour un portail du Nether ?", "10", "14", 1],
+  ["Quel est le plus grand océan du monde ?", "Atlantique", "Pacifique", 2],
+  ["Combien y a-t-il de planètes dans le système solaire ?", "9", "8", 2],
+  ["Qui a créé Minecraft ?", "Markus « Notch » Persson", "Steve Jobs", 1],
+  ["Combien font 7 × 8 ?", "54", "56", 2],
+  ["Quel métal est liquide à température ambiante ?", "Mercure", "Fer", 1],
+  ["Quel animal peut-on traire avec un seau ?", "Cochon", "Vache", 2]
+];
+let game = null;
+async function botSay(text) {
+  let ref = null;
+  try { ref = await sub("messages").add({ uid: me.uid, name: "🤖 HMD Bot", text, src: "web", createdAt: FV.serverTimestamp() }); } catch (x) { toast(x.message); }
+  try { await sub("commands").add({ type: "cmd", arg: "say " + text.replace(/\n/g, " | "), by: me.name, status: "pending", createdAt: FV.serverTimestamp() }); } catch (x) { }
+  return ref;
+}
+async function launch(kind, qs, A, correct, secs) {
+  if (game) return toast("Une partie est déjà en cours.");
+  const g = game = { kind, A, correct, votes: {}, start: Date.now(), end: Date.now() + secs * 1000 };
+  const ref = await botSay((kind === "vote" ? "📊 VOTE : " : "🎮 QUIZ : ") + qs + "\n1 → " + A[0] + "\n2 → " + A[1] + "\nÉcris 1 ou 2 dans le chat ! (" + secs + " s)");
+  if (!ref) { game = null; return; }
+  try { const s = await ref.get(); g.start = s.data().createdAt?.toMillis?.() || g.start; } catch (e) { }
+  g.un = sub("messages").orderBy("createdAt", "desc").limit(100).onSnapshot(s => {
+    s.docs.forEach(d => {
+      const m = d.data(), t = m.createdAt?.toMillis?.();
+      if (!t || t < g.start || m.name === "🤖 HMD Bot") return;
+      const x = (m.text || "").trim(); if (x !== "1" && x !== "2") return;
+      const old = g.votes[m.name];
+      if (old && (g.kind === "quiz" ? old.t <= t : old.t >= t)) return; // quiz : 1re réponse / vote : dernier choix
+      g.votes[m.name] = { o: +x, t };
+    });
+    g.upd && g.upd();
+  });
+  g.i = setInterval(() => g.upd && g.upd(), 1000);
+  g.t = setTimeout(endGame, secs * 1000);
+}
+function endGame() {
+  const g = game; if (!g) return; game = null; clearTimeout(g.t); clearInterval(g.i); g.un && g.un();
+  const v = Object.entries(g.votes).sort((a, b) => a[1].t - b[1].t), by = o => v.filter(([, x]) => x.o === o).map(([n]) => n);
+  let txt;
+  if (g.kind === "vote") {
+    const c1 = by(1).length, c2 = by(2).length, tot = c1 + c2, pc = n => tot ? Math.round(n * 100 / tot) : 0;
+    txt = `📊 Résultats : 1 → ${g.A[0]} : ${c1} (${pc(c1)}%) | 2 → ${g.A[1]} : ${c2} (${pc(c2)}%)\n` + (!tot ? "Personne n’a voté." : c1 === c2 ? "Égalité !" : "Gagnant : " + g.A[c1 > c2 ? 0 : 1]);
+  } else {
+    const ok = by(g.correct), ko = by(g.correct === 1 ? 2 : 1);
+    txt = `🎮 Bonne réponse : ${g.correct} → ${g.A[g.correct - 1]}\n✅ Bravo : ${ok.length ? ok.join(", ") : "personne"}\n❌ Raté : ${ko.length ? ko.join(", ") : "personne"}`;
+  }
+  botSay(txt); g.upd && g.upd();
+}
+function gameBox() {
+  const b = el("div", "box"), st = el("div", "sub"), kt = el("div", "tabs"), q = el("input"), a1 = el("input"), a2 = el("input"), sel = el("select"), dur = el("input"), r = el("div", "row");
+  let kind = "vote";
+  q.placeholder = "Question"; a1.placeholder = "Option 1"; a2.placeholder = "Option 2";
+  dur.type = "number"; dur.min = 10; dur.max = 300; dur.value = 30; dur.placeholder = "Durée (secondes)";
+  sel.append(new Option("Bonne réponse : 1", 1), new Option("Bonne réponse : 2", 2)); sel.classList.add("hide");
+  [["vote", "Vote"], ["quiz", "Quiz"]].forEach(([k, t]) => {
+    const x = el("button", k === kind ? "on" : "", t); x.type = "button";
+    x.onclick = () => { kind = k; [...kt.children].forEach(y => y.classList.toggle("on", y === x)); sel.classList.toggle("hide", k === "vote"); };
+    kt.append(x);
+  });
+  const secs = () => Math.min(300, Math.max(10, +dur.value || 30));
+  const upd = () => { st.textContent = game ? `En cours : ${Object.keys(game.votes).length} réponse(s), ${Math.max(0, Math.ceil((game.end - Date.now()) / 1000))} s restantes` : "Aucune partie en cours."; };
+  const run = async (k, qs, A, c) => { await launch(k, qs, A, c, secs()); if (game) game.upd = upd; upd(); };
+  const go = el("button", "btn", "Lancer"), rnd = el("button", "btn ghost", "Quiz au hasard"), end = el("button", "btn bad", "Terminer");
+  go.onclick = () => { if (!q.value.trim() || !a1.value.trim() || !a2.value.trim()) return toast("Remplis la question et les deux options."); run(kind, q.value.trim(), [a1.value.trim(), a2.value.trim()], +sel.value); };
+  rnd.onclick = () => { const x = QUIZ[Math.floor(Math.random() * QUIZ.length)]; run("quiz", x[0], [x[1], x[2]], x[3]); };
+  end.onclick = () => endGame();
+  r.append(go, rnd, end);
+  b.append(el("b", "", "Vote & Quiz"), el("p", "sub", "Les joueurs répondent en tapant 1 ou 2 dans le chat (site ou Minecraft)."), kt, q, a1, a2, sel, dur, r, st);
+  if (game) game.upd = upd; upd();
+  return b;
+}
+
 /* ---------- Admin ---------- */
 function vAdm(v) {
   if (!adminOK) {
@@ -405,7 +485,7 @@ function vAdm(v) {
   const cf = el("form", "compose"), ci = el("input"); ci.placeholder = "Commande (sans /)"; ci.autocomplete = "off"; cf.style.cssText = "padding:0;background:none;border:0"; cf.append(ci, el("button", "btn", "Exécuter"));
   cf.onsubmit = e => { e.preventDefault(); const t = ci.value.trim().replace(/^\//, ""); if (t) { send("cmd", t); ci.value = ""; } };
   const cc = el("div", "box"); cc.append(el("b", "", "Console"), con, cf);
-  p.append(cb, pb, cc); v.append(p);
+  p.append(cb, gameBox(), pb, cc); v.append(p);
   unsubs.push(watchState(s => {
     pl.textContent = ""; const a = s.data()?.players || [];
     if (!a.length) pl.append(el("p", "sub", "Personne en ligne."));
