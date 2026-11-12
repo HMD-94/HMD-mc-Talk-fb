@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>HMD Hub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#f4f2fb;--panel:#fff;--panel2:#ebe8f6;--line:#d9d4ec;--tx:#1b1830;--mut:#6d6890;--acc:#d98a00;--acc-tx:#1b1200;--teal:#0a9d96;--mine:#efe3c4;--bad:#d1384f;--ok:#1f9d5c}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#100e1b;--panel:#1a1729;--panel2:#241f38;--line:#322c4d;--tx:#eeebfa;--mut:#9a93bd;--acc:#f2b544;--acc-tx:#1d1400;--teal:#3fd0c9;--mine:#3a3020;--bad:#ff6b81;--ok:#4cd68c}}
+:root[data-theme=dark]{--bg:#100e1b;--panel:#1a1729;--panel2:#241f38;--line:#322c4d;--tx:#eeebfa;--mut:#9a93bd;--acc:#f2b544;--acc-tx:#1d1400;--teal:#3fd0c9;--mine:#3a3020;--bad:#ff6b81;--ok:#4cd68c}
+*{box-sizing:border-box;margin:0}
+html,body{height:100%}
+body{font-family:Sora,system-ui,sans-serif;background:var(--bg);color:var(--tx);font-size:15px;padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom);overflow:hidden}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none}
+:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.hide{display:none!important}
+.btn{background:var(--acc);color:var(--acc-tx);font-weight:600;padding:11px 18px;border-radius:12px}
+.btn.ghost{background:var(--panel2);color:var(--tx)}
+.btn.bad{background:var(--bad);color:#fff}
+.btn.sm{padding:7px 12px;font-size:13px;border-radius:9px}
+input{background:var(--panel2);border:1px solid var(--line);border-radius:12px;padding:12px 14px;width:100%}
+input:focus{outline:2px solid var(--acc);border-color:transparent}
+/* auth */
+#auth{height:100%;display:grid;place-items:center;padding:20px;overflow:auto;background:radial-gradient(900px 500px at 15% 0%,color-mix(in srgb,var(--acc) 22%,transparent),transparent),radial-gradient(700px 500px at 100% 100%,color-mix(in srgb,var(--teal) 20%,transparent),transparent)}
+.card{width:100%;max-width:400px;background:var(--panel);border:1px solid var(--line);border-radius:22px;padding:30px;display:flex;flex-direction:column;gap:14px}
+.logo{font-size:30px;font-weight:700;letter-spacing:-.03em}.logo b{color:var(--acc)}
+.sub{color:var(--mut);font-size:14px;line-height:1.5}
+.tabs{display:flex;background:var(--panel2);border-radius:12px;padding:4px}
+.tabs button{flex:1;padding:9px;border-radius:9px;color:var(--mut);font-weight:600}
+.tabs button.on{background:var(--panel);color:var(--tx)}
+.err{color:var(--bad);font-size:13px;min-height:18px}
+/* app */
+#app{height:100%;display:grid;grid-template-columns:320px 1fr}
+#side{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.sh{padding:18px 16px 12px;display:flex;align-items:center;justify-content:space-between}
+#list{flex:1;overflow:auto;padding:4px 10px;display:flex;flex-direction:column;gap:4px}
+.ci{display:flex;gap:12px;align-items:center;padding:11px 12px;border-radius:14px;text-align:left;width:100%}
+.ci:hover{background:var(--panel2)}.ci.on{background:var(--panel2);box-shadow:inset 3px 0 0 var(--acc)}
+.av{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;font-weight:700;flex:none;background:var(--panel2);color:var(--acc)}
+.av.mc{background:linear-gradient(135deg,#5b8a3c,#8b5a2b);color:#fff}
+.ci .n{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.ci .s{font-size:12px;color:var(--mut)}
+.ci>div{min-width:0}
+.me{border-top:1px solid var(--line);padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+#main{display:flex;flex-direction:column;min-width:0;min-height:0}
+.top{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+.top h2{font-size:17px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+#burger{display:none;font-size:22px;padding:2px 8px}
+.mt{display:flex;gap:4px;padding:8px 16px 0;background:var(--panel);border-bottom:1px solid var(--line);overflow:auto}
+.mt button{padding:9px 14px;color:var(--mut);font-weight:600;border-bottom:2px solid transparent;white-space:nowrap}
+.mt button.on{color:var(--tx);border-color:var(--acc)}
+.view{flex:1;min-height:0;display:flex;flex-direction:column}
+#msgs{flex:1;overflow:auto;padding:18px 16px;display:flex;flex-direction:column;gap:8px}
+.m{max-width:min(560px,82%);background:var(--panel);border:1px solid var(--line);border-radius:16px 16px 16px 4px;padding:9px 13px;align-self:flex-start}
+.m.me2{align-self:flex-end;background:var(--mine);border-radius:16px 16px 4px 16px}
+.m .w{font-size:12px;color:var(--teal);font-weight:600;margin-bottom:2px}.m .t{overflow-wrap:anywhere;white-space:pre-wrap}
+.tag{font-size:11px;background:#5b8a3c;color:#fff;border-radius:6px;padding:1px 6px;margin-left:6px}
+.compose{display:flex;gap:8px;padding:12px 16px;background:var(--panel);border-top:1px solid var(--line)}
+.empty{margin:auto;text-align:center;color:var(--mut);padding:24px;max-width:340px;line-height:1.6}
+.empty h3{color:var(--tx);margin-bottom:6px}
+.pad{padding:18px 16px;overflow:auto;flex:1;display:flex;flex-direction:column;gap:14px}
+.box{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px;display:flex;flex-direction:column;gap:10px}
+.code{font-size:30px;font-weight:700;letter-spacing:.06em;color:var(--acc)}
+.cmd{background:var(--panel2);border-radius:10px;padding:10px 12px;font-family:ui-monospace,Consolas,monospace;font-size:13px;overflow-wrap:anywhere}
+.dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--mut);margin-right:6px}.dot.ok{background:var(--ok)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.pl{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--line)}
+#map{width:100%;flex:1;min-height:260px;border-radius:16px;background:var(--panel);border:1px solid var(--line)}
+#con{background:#0b0a12;color:#cfe9d0;border-radius:12px;padding:12px;height:240px;overflow:auto;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;white-space:pre-wrap}
+.modal{position:fixed;inset:0;background:rgba(5,4,12,.6);display:grid;place-items:center;padding:20px;z-index:20}
+.modal .card{max-height:90%;overflow:auto}
+#toast{position:fixed;bottom:calc(20px + env(safe-area-inset-bottom));left:50%;transform:translateX(-50%);background:var(--tx);color:var(--bg);padding:10px 16px;border-radius:12px;z-index:30;font-size:14px}
+@media(max-width:800px){
+#app{grid-template-columns:1fr}
+#side{position:fixed;inset:0;z-index:10;width:100%;transform:translateX(-100%);transition:transform .2s}
+#side.open{transform:none}
+#burger{display:block}
+.m{max-width:90%}
+}
+@media(prefers-reduced-motion:reduce){#side{transition:none}}
+</style>
+</head>
+<body>
+
+<section id="auth" class="hide">
+  <form class="card" id="af" autocomplete="off">
+    <div class="logo">HMD<b>.</b>Hub</div>
+    <p class="sub">Discute avec tes potes et pilote ton serveur Minecraft au même endroit.</p>
+    <div class="tabs"><button type="button" id="tl" class="on">Connexion</button><button type="button" id="tr">Créer un compte</button></div>
+    <input id="u" placeholder="Nom d’utilisateur" maxlength="20" autocapitalize="none" required>
+    <input id="p1" type="password" placeholder="Mot de passe" required>
+    <input id="p2" type="password" placeholder="Répète le mot de passe" class="hide">
+    <div class="err" id="ae"></div>
+    <button class="btn" id="ab">Se connecter</button>
+  </form>
+</section>
+
+<section id="app" class="hide">
+  <aside id="side">
+    <div class="sh"><div class="logo" style="font-size:22px">HMD<b>.</b>Hub</div>
+      <div class="row"><button class="btn sm" id="nw">Nouveau</button><button class="btn sm ghost" id="cl" aria-label="Fermer" style="display:none">✕</button></div></div>
+    <div id="list"></div>
+    <div class="me"><div style="min-width:0"><div id="mn" style="font-weight:600;overflow:hidden;text-overflow:ellipsis"></div><div class="sub" style="font-size:12px">Connecté</div></div><button class="btn sm ghost" id="lo">Quitter</button></div>
+  </aside>
+  <main id="main"></main>
+</section>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.12.2/firebase-app-compat.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.12.2/firebase-auth-compat.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/10.12.2/firebase-firestore-compat.min.js"></script>
+<script>
+const firebaseConfig = {
+  apiKey: "AIzaSyCZX09Kc3TXZniSbGt9jAP_Ml0BT7Q4uR8",
+  authDomain: "hmd-hub.firebaseapp.com",
+  projectId: "hmd-hub",
+  storageBucket: "hmd-hub.firebasestorage.app",
+  messagingSenderId: "145481795853",
+  appId: "1:145481795853:web:c7faffc0dffcddacc3c844",
+  measurementId: "G-QJCH8CBDBG"
+};
+firebase.initializeApp(firebaseConfig);
+const auth = firebase.auth(), db = firebase.firestore(), FV = firebase.firestore.FieldValue;
+const $ = s => document.querySelector(s);
+const el = (t, c, x) => { const e = document.createElement(t); if (c) e.className = c; if (x != null) e.textContent = x; return e; };
+const ADMIN_PW = "1937";
+let me = null, convs = [], cur = null, tab = "chat", adminOK = false, unsubs = [], listUn = null;
+const clean = n => n.toLowerCase().replace(/[^a-z0-9_]/g, "");
+const mail = n => clean(n) + "@hmd-hub.app";
+function toast(t) { const d = el("div", "", t); d.id = "toast"; document.body.append(d); setTimeout(() => d.remove(), 2600); }
+function stop() { unsubs.forEach(f => f()); unsubs = []; }
+
+/* ---------- Auth ---------- */
+let reg = false;
+function mode(r) { reg = r; $("#tl").classList.toggle("on", !r); $("#tr").classList.toggle("on", r); $("#p2").classList.toggle("hide", !r); $("#ab").textContent = r ? "Créer mon compte" : "Se connecter"; $("#ae").textContent = ""; }
+$("#tl").onclick = () => mode(false); $("#tr").onclick = () => mode(true);
+$("#af").onsubmit = async e => {
+  e.preventDefault(); const n = $("#u").value.trim(), p = $("#p1").value, err = $("#ae"); err.textContent = "";
+  if (!/^[A-Za-z0-9_]{3,20}$/.test(n)) return err.textContent = "Le nom doit faire 3 à 20 caractères : lettres, chiffres ou _.";
+  try {
+    if (reg) {
+      if (p.length < 6) return err.textContent = "Le mot de passe doit faire au moins 6 caractères.";
+      if (p !== $("#p2").value) return err.textContent = "Les deux mots de passe sont différents.";
+      const c = await auth.createUserWithEmailAndPassword(mail(n), p);
+      await c.user.updateProfile({ displayName: n });
+      await db.collection("users").doc(c.user.uid).set({ name: n, nameLower: clean(n) });
+      me = { uid: c.user.uid, name: n }; start();
+    } else await auth.signInWithEmailAndPassword(mail(n), p);
+  } catch (x) {
+    const m = { "auth/email-already-in-use": "Ce nom est déjà pris.", "auth/invalid-credential": "Nom ou mot de passe incorrect.", "auth/wrong-password": "Nom ou mot de passe incorrect.", "auth/user-not-found": "Nom ou mot de passe incorrect.", "auth/operation-not-allowed": "Active la connexion Email/Mot de passe dans Firebase Authentication." };
+    err.textContent = m[x.code] || x.message;
+  }
+};
+$("#lo").onclick = () => auth.signOut();
+auth.onAuthStateChanged(u => {
+  if (!u) { stop(); listUn && listUn(); me = null; cur = null; $("#app").classList.add("hide"); $("#auth").classList.remove("hide"); return; }
+  me = { uid: u.uid, name: u.displayName || "Joueur" }; start();
+});
+
+/* ---------- App ---------- */
+function start() {
+  $("#auth").classList.add("hide"); $("#app").classList.remove("hide"); $("#mn").textContent = me.name;
+  listUn && listUn();
+  listUn = db.collection("conversations").where("members", "array-contains", me.uid).onSnapshot(s => {
+    convs = s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.seconds || 9e9) - (a.createdAt?.seconds || 9e9));
+    drawList();
+    if (cur) { const c = convs.find(x => x.id === cur.id); if (c) { const was = !!(cur.mc && cur.mc.paired); cur = c; head(); if (tab === "srv" && cur.type === "mc" && was !== !!(c.mc && c.mc.paired)) show(); } }
+  }, e => toast("Erreur : " + e.message));
+  if (!cur) home();
+}
+function title(c) {
+  if (c.type === "dm") return Object.entries(c.names || {}).filter(([k]) => k !== me.uid).map(([, v]) => v)[0] || "Discussion";
+  return c.name;
+}
+function drawList() {
+  const l = $("#list"); l.textContent = "";
+  if (!convs.length) { l.append(Object.assign(el("p", "sub", "Aucune conversation pour l’instant. Crée un groupe ou écris à un ami avec « Nouveau »."), { style: "padding:12px" })); return; }
+  convs.forEach(c => {
+    const b = el("button", "ci" + (cur && cur.id === c.id ? " on" : "")), a = el("div", "av" + (c.type === "mc" ? " mc" : ""), c.type === "mc" ? "⛏" : title(c).slice(0, 1).toUpperCase());
+    const d = el("div"); d.append(el("div", "n", title(c)), el("div", "s", c.type === "mc" ? "Groupe Minecraft" : c.type === "dm" ? "Message privé" : `Groupe · ${c.members.length} membres`));
+    b.append(a, d); b.onclick = () => open(c); l.append(b);
+  });
+}
+function home() {
+  stop(); cur = null; drawList(); const m = $("#main"); m.textContent = "";
+  const t = el("div", "top"), bg = el("button", "", "☰"); bg.id = "burger"; bg.onclick = () => side(true); t.append(bg, el("h2", "", "Bienvenue " + me.name)); 
+  const e = el("div", "empty"); e.append(el("h3", "", "Choisis une conversation"), el("p", "", "Ouvre une discussion dans la liste, ou crée un groupe Minecraft pour connecter ton serveur."));
+  m.append(t, e);
+}
+function side(o) { $("#side").classList.toggle("open", o); $("#cl").style.display = o ? "" : "none"; }
+$("#cl").onclick = () => side(false);
+function open(c) { cur = c; tab = "chat"; adminOK = false; side(false); drawList(); shell(); show(); }
+function shell() {
+  const m = $("#main"); m.textContent = "";
+  const t = el("div", "top"), bg = el("button", "", "☰"); bg.id = "burger"; bg.onclick = () => side(true);
+  const h = el("h2"); h.id = "ct"; t.append(bg, h);
+  if (cur.type !== "dm") { const a = el("button", "btn sm ghost", "+ Membre"); a.onclick = addMember; t.append(a); }
+  m.append(t);
+  if (cur.type === "mc") { const mt = el("div", "mt"); mt.id = "mt"; [["chat", "Discussion"], ["srv", "Serveur"], ["map", "Carte"], ["adm", "Admin"]].forEach(([k, v]) => { const b = el("button", "", v); b.dataset.k = k; b.onclick = () => { tab = k; show(); }; mt.append(b); }); m.append(mt); }
+  const v = el("div", "view"); v.id = "vw"; m.append(v); head();
+}
+function head() { const h = $("#ct"); if (h) h.textContent = title(cur); }
+function show() {
+  stop(); document.querySelectorAll("#mt button").forEach(b => b.classList.toggle("on", b.dataset.k === tab));
+  const v = $("#vw"); v.textContent = "";
+  ({ chat: vChat, srv: vSrv, map: vMap, adm: vAdm })[tab](v);
+}
+const sub = c => db.collection("conversations").doc(cur.id).collection(c);
+
+/* ---------- Chat ---------- */
+function vChat(v) {
+  const box = el("div"); box.id = "msgs"; const f = el("form", "compose"), i = el("input"); i.placeholder = "Écris un message…"; i.maxLength = 1000; i.autocomplete = "off";
+  f.append(i, el("button", "btn", "Envoyer")); v.append(box, f);
+  f.onsubmit = async e => { e.preventDefault(); const t = i.value.trim(); if (!t) return; i.value = ""; try { await sub("messages").add({ uid: me.uid, name: me.name, text: t, src: "web", createdAt: FV.serverTimestamp() }); } catch (x) { toast(x.message); } };
+  unsubs.push(sub("messages").orderBy("createdAt", "desc").limit(150).onSnapshot(s => {
+    box.textContent = ""; const arr = s.docs.map(d => d.data()).reverse();
+    if (!arr.length) { const e = el("div", "empty"); e.append(el("h3", "", "Aucun message"), el("p", "", "Lance la conversation.")); box.append(e); return; }
+    arr.forEach(m => { const d = el("div", "m" + (m.uid === me.uid ? " me2" : "")), w = el("div", "w", m.name); if (m.src === "mc") w.append(el("span", "tag", "Minecraft")); d.append(w, el("div", "t", m.text)); box.append(d); });
+    box.scrollTop = box.scrollHeight;
+  }));
+}
+async function addMember() {
+  const n = prompt("Nom d’utilisateur à ajouter :"); if (!n) return;
+  const s = await db.collection("users").where("nameLower", "==", clean(n)).get();
+  if (s.empty) return toast("Aucun utilisateur avec ce nom.");
+  const d = s.docs[0]; await db.collection("conversations").doc(cur.id).update({ members: FV.arrayUnion(d.id), ["names." + d.id]: d.data().name });
+  toast(d.data().name + " ajouté.");
+}
+
+/* ---------- Création ---------- */
+$("#nw").onclick = () => {
+  const bg = el("div", "modal"), f = el("form", "card"); let kind = "dm";
+  const tb = el("div", "tabs"), mk = (k, t) => { const b = el("button", k === kind ? "on" : "", t); b.type = "button"; b.onclick = () => { kind = k; [...tb.children].forEach(x => x.classList.toggle("on", x === b)); nm.classList.toggle("hide", k === "dm"); us.placeholder = k === "dm" ? "Nom de ton ami" : "Amis à ajouter (séparés par une virgule)"; info.textContent = k === "mc" ? "Tu recevras ensuite un code à entrer sur ton serveur avec le mod 26.1.2." : ""; }; tb.append(b); };
+  mk("dm", "Message"); mk("group", "Groupe"); mk("mc", "Minecraft");
+  const nm = el("input", "hide"); nm.placeholder = "Nom du groupe"; nm.maxLength = 30;
+  const us = el("input"); us.placeholder = "Nom de ton ami"; const info = el("p", "sub"), er = el("div", "err"), r = el("div", "row");
+  const ok = el("button", "btn", "Créer"), no = el("button", "btn ghost", "Annuler"); no.type = "button"; no.onclick = () => bg.remove(); r.append(ok, no);
+  f.append(el("div", "logo", "Nouvelle conversation"), tb, nm, us, info, er, r); bg.append(f); document.body.append(bg);
+  f.onsubmit = async e => {
+    e.preventDefault(); er.textContent = "";
+    const names = us.value.split(",").map(x => clean(x.trim())).filter(Boolean).filter(x => x !== clean(me.name));
+    if (kind === "dm" && names.length !== 1) return er.textContent = "Indique un seul nom.";
+    if (kind !== "dm" && !nm.value.trim()) return er.textContent = "Donne un nom au groupe.";
+    try {
+      const members = [me.uid], ns = { [me.uid]: me.name };
+      for (const n of names) { const s = await db.collection("users").where("nameLower", "==", n).get(); if (s.empty) return er.textContent = `« ${n} » n’existe pas.`; members.push(s.docs[0].id); ns[s.docs[0].id] = s.docs[0].data().name; }
+      if (kind === "dm") { const ex = convs.find(c => c.type === "dm" && c.members.includes(members[1])); if (ex) { bg.remove(); return open(ex); } }
+      const ref = await db.collection("conversations").add({ type: kind, name: nm.value.trim() || "", members, names: ns, owner: me.uid, createdAt: FV.serverTimestamp(), mc: { paired: false } });
+      bg.remove(); const s = await ref.get(); open({ id: ref.id, ...s.data() });
+    } catch (x) { er.textContent = x.message; }
+  };
+};
+
+/* ---------- Serveur Minecraft ---------- */
+function vSrv(v) {
+  const p = el("div", "pad"), st = el("div", "box"), pr = el("div", "box"); p.append(st, pr); v.append(p);
+  unsubs.push(sub("mc").doc("state").onSnapshot(s => {
+    const d = s.data(), on = d && d.online && Date.now() - (d.updatedAt?.toMillis?.() || 0) < 45000; st.textContent = "";
+    const h = el("div", "row"), dot = el("span", "dot" + (on ? " ok" : "")); h.append(dot, el("b", "", on ? "Serveur en ligne" : "Serveur hors ligne")); st.append(h);
+    st.append(el("p", "sub", on ? `${(d.players || []).length} joueur(s) connecté(s)` + (d.version ? ` · Minecraft ${d.version}` : "") : "Le serveur n’a pas envoyé de signal récemment."));
+    if (on && d.players?.length) d.players.forEach(x => { const r = el("div", "pl"); r.append(el("span", "", x.name)); st.append(r); });
+  }, e => toast("Erreur : " + e.message)));
+  const paired = cur.mc && cur.mc.paired;
+  pr.append(el("b", "", paired ? "Serveur connecté au groupe" : "Connecter ton serveur"));
+  if (paired) { pr.append(el("p", "sub", "Ton serveur est relié. Tu peux regénérer un code pour le reconnecter.")); }
+  else pr.append(el("p", "sub", "1. Installe le mod HMD Hub 26.1.2 dans le dossier mods de ton serveur.\n2. Génère un code ci-dessous.\n3. En admin, tape la commande dans Minecraft."));
+  const box = el("div", "row"), g = el("button", "btn", "Générer un code"); box.append(g); pr.append(box);
+  const status = el("div", "err"); pr.append(status);
+  const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rj) => setTimeout(() => rj(new Error("timeout")), ms))]);
+  g.onclick = async () => {
+    status.textContent = "";
+    if (cur.owner !== me.uid) { status.textContent = "Seul le créateur du groupe peut générer un code."; return; }
+    g.disabled = true; g.textContent = "Génération…";
+    const code = "HMD-" + String(Math.floor(Math.random() * 10000)).padStart(4, "0");
+    try {
+      await withTimeout(db.collection("pairCodes").doc(code).set({ convId: cur.id, owner: me.uid, expiresAt: Date.now() + 600000, createdAt: FV.serverTimestamp() }), 8000);
+      box.textContent = ""; box.append(el("div", "code", code)); pr.append(el("div", "cmd", "/pair " + code), el("p", "sub", "Le code est valable 10 minutes. Tape cette commande dans Minecraft en admin, ou dans la console du serveur."));
+      return;
+    } catch (x) {
+      status.textContent = x.message === "timeout" ? "Firestore ne répond pas. Dans Firebase, crée la base (Firestore Database → Créer une base de données) puis publie les règles de firestore.rules."
+        : x.code === "permission-denied" ? "Accès refusé. Dans Firebase → Firestore Database → Règles, colle le contenu de firestore.rules puis clique sur Publier."
+        : "Erreur : " + x.message;
+    }
+    g.disabled = false; g.textContent = "Générer un code";
+  };
+}
+
+/* ---------- Carte ---------- */
+function vMap(v) {
+  const p = el("div", "pad"), cv = el("canvas"); cv.id = "map"; p.append(cv, el("p", "sub", "Positions en direct des joueurs (vue du dessus, axes X et Z).")); v.append(p);
+  let pl = [];
+  const draw = () => {
+    const r = cv.getBoundingClientRect(), dp = devicePixelRatio || 1; cv.width = r.width * dp; cv.height = r.height * dp;
+    const g = cv.getContext("2d"), cs = getComputedStyle(document.body); g.scale(dp, dp); g.clearRect(0, 0, r.width, r.height);
+    const W = r.width, H = r.height; let ext = 64; pl.forEach(x => ext = Math.max(ext, Math.abs(x.x), Math.abs(x.z)));
+    ext = Math.ceil(ext * 1.25 / 32) * 32; const k = Math.min(W, H) / 2 / ext, line = getComputedStyle(document.documentElement).getPropertyValue("--line"), mut = getComputedStyle(document.documentElement).getPropertyValue("--mut"), acc = getComputedStyle(document.documentElement).getPropertyValue("--acc"), tx = getComputedStyle(document.documentElement).getPropertyValue("--tx");
+    g.strokeStyle = line; g.lineWidth = 1; for (let i = -ext; i <= ext; i += ext > 256 ? 64 : 32) { g.beginPath(); g.moveTo(W / 2 + i * k, 0); g.lineTo(W / 2 + i * k, H); g.moveTo(0, H / 2 + i * k); g.lineTo(W, H / 2 + i * k); g.stroke(); }
+    g.strokeStyle = mut; g.beginPath(); g.moveTo(W / 2, 0); g.lineTo(W / 2, H); g.moveTo(0, H / 2); g.lineTo(W, H / 2); g.stroke();
+    g.font = "600 12px Sora,sans-serif"; pl.forEach(x => { const px = W / 2 + x.x * k, py = H / 2 + x.z * k; g.fillStyle = acc; g.beginPath(); g.arc(px, py, 7, 0, 7); g.fill(); g.fillStyle = tx; g.fillText(x.name, px + 11, py + 4); });
+    if (!pl.length) { g.fillStyle = mut; g.textAlign = "center"; g.fillText("Aucun joueur connecté", W / 2, H / 2 - 14); }
+  };
+  unsubs.push(sub("mc").doc("state").onSnapshot(s => { pl = (s.data()?.players) || []; draw(); }));
+  addEventListener("resize", draw); unsubs.push(() => removeEventListener("resize", draw)); requestAnimationFrame(draw);
+}
+
+/* ---------- Admin ---------- */
+function vAdm(v) {
+  if (!adminOK) {
+    const e = el("div", "pad"), b = el("form", "box"), i = el("input"); i.type = "password"; i.placeholder = "Mot de passe admin"; const er = el("div", "err");
+    b.style.cssText = "max-width:380px;margin:auto;width:100%"; b.append(el("b", "", "Mode admin"), el("p", "sub", "Entre le mot de passe pour piloter le serveur."), i, er, el("button", "btn", "Déverrouiller")); e.append(b); v.append(e);
+    b.onsubmit = x => { x.preventDefault(); if (i.value === ADMIN_PW) { adminOK = true; show(); } else er.textContent = "Mot de passe incorrect."; };
+    return;
+  }
+  const p = el("div", "pad"), pb = el("div", "box"), cb = el("div", "box"), con = el("div"); con.id = "con";
+  const send = async (type, arg) => { try { await sub("commands").add({ type, arg: arg || "", by: me.name, status: "pending", createdAt: FV.serverTimestamp() }); toast("Commande envoyée."); } catch (x) { toast(x.message); } };
+  const q = el("div", "row");
+  [["Sauvegarder", () => send("cmd", "save-all")], ["Jour", () => send("cmd", "time set day")], ["Soleil", () => send("cmd", "weather clear")], ["Annonce", () => { const t = prompt("Message à diffuser :"); t && send("cmd", "say " + t); }], ["Éteindre le serveur", () => confirm("Éteindre le serveur ?") && send("stop")]].forEach(([t, f], k) => { const b = el("button", "btn sm " + (k === 4 ? "bad" : "ghost"), t); b.onclick = f; q.append(b); });
+  cb.append(el("b", "", "Actions rapides"), q);
+  pb.append(el("b", "", "Joueurs connectés")); const pl = el("div"); pb.append(pl);
+  const cf = el("form", "compose"), ci = el("input"); ci.placeholder = "Commande (sans /)"; ci.autocomplete = "off"; cf.style.cssText = "padding:0;background:none;border:0"; cf.append(ci, el("button", "btn", "Exécuter"));
+  cf.onsubmit = e => { e.preventDefault(); const t = ci.value.trim().replace(/^\//, ""); if (t) { send("cmd", t); ci.value = ""; } };
+  const cc = el("div", "box"); cc.append(el("b", "", "Console"), con, cf);
+  p.append(cb, pb, cc); v.append(p);
+  unsubs.push(sub("mc").doc("state").onSnapshot(s => {
+    pl.textContent = ""; const a = s.data()?.players || [];
+    if (!a.length) pl.append(el("p", "sub", "Personne en ligne."));
+    a.forEach(x => { const r = el("div", "pl"), k = el("button", "btn sm bad", "Expulser"); k.onclick = () => { const why = prompt("Raison (facultatif) :", ""); if (why !== null) send("kick", x.name + (why ? " " + why : "")); }; r.append(el("span", "", x.name), k); pl.append(r); });
+  }));
+  unsubs.push(sub("console").orderBy("createdAt", "desc").limit(200).onSnapshot(s => { con.textContent = s.docs.map(d => d.data().line).reverse().join("\n") || "En attente de la console du serveur…"; con.scrollTop = con.scrollHeight; }));
+}
+</script>
+</body>
+</html>
