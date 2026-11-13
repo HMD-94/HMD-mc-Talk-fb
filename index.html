@@ -58,6 +58,7 @@ select{background:var(--panel2);border:1px solid var(--line);border-radius:12px;
 .m.me2{align-self:flex-end;background:var(--mine);border-radius:16px 16px 4px 16px}
 .m .w{font-size:12px;color:var(--teal);font-weight:600;margin-bottom:2px}.m .t{overflow-wrap:anywhere;white-space:pre-wrap}
 .tag{font-size:11px;background:#5b8a3c;color:#fff;border-radius:6px;padding:1px 6px;margin-left:6px}
+.sys{align-self:center;color:var(--mut);font-size:12.5px;background:var(--panel2);padding:4px 12px;border-radius:99px;text-align:center}
 .compose{display:flex;gap:8px;padding:12px 16px;background:var(--panel);border-top:1px solid var(--line)}
 .empty{margin:auto;text-align:center;color:var(--mut);padding:24px;max-width:340px;line-height:1.6}
 .empty h3{color:var(--tx);margin-bottom:6px}
@@ -67,7 +68,7 @@ select{background:var(--panel2);border:1px solid var(--line);border-radius:12px;
 .cmd{background:var(--panel2);border-radius:10px;padding:10px 12px;font-family:ui-monospace,Consolas,monospace;font-size:13px;overflow-wrap:anywhere}
 .dot{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--mut);margin-right:6px}.dot.ok{background:var(--ok)}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-.pl{display:flex;justify-content:space-between;align-items:center;padding:7px 0;border-bottom:1px solid var(--line)}
+.pl{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;padding:7px 0;border-bottom:1px solid var(--line)}
 #map{width:100%;flex:1;min-height:260px;border-radius:16px;background:var(--panel);border:1px solid var(--line)}
 #con{background:#0b0a12;color:#cfe9d0;border-radius:12px;padding:12px;height:240px;overflow:auto;font-family:ui-monospace,Consolas,monospace;font-size:12.5px;white-space:pre-wrap}
 .modal{position:fixed;inset:0;background:rgba(5,4,12,.6);display:grid;place-items:center;padding:20px;z-index:20}
@@ -89,6 +90,7 @@ select{background:var(--panel2);border:1px solid var(--line);border-radius:12px;
   <form class="card" id="af" autocomplete="off">
     <div class="logo">HMD<b>.</b>Hub</div>
     <p class="sub">Discute avec tes potes et pilote ton serveur Minecraft au même endroit.</p>
+    <div class="sub hide" id="inv" style="color:var(--acc);font-weight:600"></div>
     <div class="tabs"><button type="button" id="tl" class="on">Connexion</button><button type="button" id="tr">Créer un compte</button></div>
     <input id="u" placeholder="Nom d’utilisateur" maxlength="20" autocapitalize="none" required>
     <input id="p1" type="password" placeholder="Mot de passe" required>
@@ -129,7 +131,7 @@ const ADMIN_PW = "1937";
 let me = null, convs = [], cur = null, tab = "chat", adminOK = false, unsubs = [], listUn = null;
 const clean = n => n.toLowerCase().replace(/[^a-z0-9_]/g, "");
 const mail = n => clean(n) + "@hmd-hub.app";
-function toast(t) { const d = el("div", "", t); d.id = "toast"; document.body.append(d); setTimeout(() => d.remove(), 2600); }
+function toast(t, ms) { const d = el("div", "", t); d.id = "toast"; document.body.append(d); setTimeout(() => d.remove(), ms || 2600); }
 function stop() { unsubs.forEach(f => f()); unsubs = []; }
 
 /* ---------- Auth ---------- */
@@ -143,19 +145,25 @@ $("#af").onsubmit = async e => {
     if (reg) {
       if (p.length < 6) return err.textContent = "Le mot de passe doit faire au moins 6 caractères.";
       if (p !== $("#p2").value) return err.textContent = "Les deux mots de passe sont différents.";
-      const c = await auth.createUserWithEmailAndPassword(mail(n), p);
+      registering = true; const c = await auth.createUserWithEmailAndPassword(mail(n), p);
       await c.user.updateProfile({ displayName: n });
       await db.collection("users").doc(c.user.uid).set({ name: n, nameLower: clean(n) });
-      me = { uid: c.user.uid, name: n }; start();
+      me = { uid: c.user.uid, name: n }; start(); registering = false; if (pendingJoin) joinInvite();
     } else await auth.signInWithEmailAndPassword(mail(n), p);
   } catch (x) {
+    registering = false;
     const m = { "auth/email-already-in-use": "Ce nom est déjà pris.", "auth/invalid-credential": "Nom ou mot de passe incorrect.", "auth/wrong-password": "Nom ou mot de passe incorrect.", "auth/user-not-found": "Nom ou mot de passe incorrect.", "auth/operation-not-allowed": "Active la connexion Email/Mot de passe dans Firebase Authentication." };
     err.textContent = m[x.code] || x.message;
   }
 };
 $("#lo").onclick = () => auth.signOut();
+let pendingJoin = new URLSearchParams(location.search).get("join"), registering = false;
+if (pendingJoin) {
+  mode(true);
+  db.collection("invites").doc(pendingJoin).get().then(d => { const b = $("#inv"); b.classList.remove("hide"); b.textContent = d.exists && d.data().expiresAt > Date.now() ? "Tu es invité à rejoindre « " + d.data().convName + " ». Crée un compte (ou connecte-toi) pour entrer dans le groupe." : "Ce lien d’invitation est invalide ou expiré."; }).catch(() => {});
+}
 auth.onAuthStateChanged(u => {
-  if (!u) { stop(); listUn && listUn(); me = null; cur = null; $("#app").classList.add("hide"); $("#auth").classList.remove("hide"); return; }
+  if (!u) { stop(); stopGuard(); listUn && listUn(); me = null; cur = null; $("#app").classList.add("hide"); $("#auth").classList.remove("hide"); return; }
   me = { uid: u.uid, name: u.displayName || "Joueur" }; start();
 });
 
@@ -165,10 +173,12 @@ function start() {
   db.collection("users").doc(me.uid).set({ name: me.name, nameLower: clean(me.name) }, { merge: true }).catch(() => {});
   try { me.mcName = localStorage.getItem("mcName") || null; } catch (e) { }
   db.collection("users").doc(me.uid).get().then(d => { if (d.exists && d.data().mcName) { me.mcName = d.data().mcName; try { localStorage.setItem("mcName", me.mcName); } catch (e) { } } }).catch(() => {});
+  if (pendingJoin && !registering) joinInvite();
   listUn && listUn();
   listUn = db.collection("conversations").where("members", "array-contains", me.uid).onSnapshot(s => {
     convs = s.docs.filter(d => !d.metadata.hasPendingWrites).map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.seconds || 9e9) - (a.createdAt?.seconds || 9e9));
-    drawList();
+    drawList(); startGuard();
+    if (pendingOpen) { const pc = convs.find(x => x.id === pendingOpen); if (pc) { pendingOpen = null; open(pc); } }
     if (cur) { const c = convs.find(x => x.id === cur.id); if (c) { const was = JSON.stringify(cur.mc || {}); cur = c; head(); if (cur.type === "mc" && (tab === "srv" || tab === "world") && was !== JSON.stringify(c.mc || {})) show(); } }
   }, e => toast("Erreur : " + e.message));
   if (!cur) home();
@@ -201,14 +211,14 @@ function shell() {
   const h = el("h2"); h.id = "ct"; t.append(bg, h);
   if (cur.type !== "dm") { const a = el("button", "btn sm ghost", "+ Membre"); a.onclick = addMember; t.append(a); }
   m.append(t);
-  if (cur.type === "mc") { const mt = el("div", "mt"); mt.id = "mt"; [["chat", "Discussion"], ["srv", "Serveur"], ["map", "Carte"], ["world", "Monde"], ["adm", "Admin"]].forEach(([k, v]) => { const b = el("button", "", v); b.dataset.k = k; b.onclick = () => { tab = k; show(); }; mt.append(b); }); m.append(mt); }
+  if (cur.type === "mc") { const mt = el("div", "mt"); mt.id = "mt"; [["chat", "Discussion"], ["srv", "Serveur"], ["map", "Carte"], ["world", "Monde"], ["sec", "Sécurité"], ["adm", "Admin"]].forEach(([k, v]) => { const b = el("button", "", v); b.dataset.k = k; b.onclick = () => { tab = k; show(); }; mt.append(b); }); m.append(mt); }
   const v = el("div", "view"); v.id = "vw"; m.append(v); head();
 }
 function head() { const h = $("#ct"); if (h) h.textContent = title(cur); }
 function show() {
   stop(); document.querySelectorAll("#mt button").forEach(b => b.classList.toggle("on", b.dataset.k === tab));
   const v = $("#vw"); v.textContent = "";
-  ({ chat: vChat, srv: vSrv, map: vMap, world: vWorld, adm: vAdm })[tab](v);
+  ({ chat: vChat, srv: vSrv, map: vMap, world: vWorld, sec: vSec, adm: vAdm })[tab](v);
 }
 const sub = c => db.collection("conversations").doc(cur.id).collection(c);
 let lastPlayers = [];
@@ -236,6 +246,72 @@ function playerRows(box, arr) {
   arr.forEach(x => { const r = el("div", "pl"), b = el("button", "btn sm ghost", "Se téléporter"); b.onclick = () => tpTo(x.name); r.append(el("span", "", x.name), b); box.append(r); });
 }
 
+async function sendCmd(type, arg) {
+  try { await sub("commands").add({ type, arg: arg || "", by: me.name, status: "pending", createdAt: FV.serverTimestamp() }); toast("Commande envoyée."); } catch (x) { toast(x.message); }
+}
+let zonesAll = [], zonesUn = null, guardUn = {}, inside = {}, alertLog = [], pendingOpen = null;
+const zoneCbs = new Set();
+function beep() { try { const a = new (window.AudioContext || window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain(); o.connect(g); g.connect(a.destination); o.frequency.value = 880; g.gain.value = .15; o.start(); setTimeout(() => { o.stop(); a.close(); }, 450); } catch (e) { } }
+function startGuard() {
+  if (!me) return;
+  if (!zonesUn) zonesUn = db.collection("zones").where("owner", "==", me.uid).onSnapshot(s => { zonesAll = s.docs.map(d => ({ id: d.id, ...d.data() })); zoneCbs.forEach(f => f()); }, () => {});
+  convs.filter(c => c.type === "mc").forEach(c => {
+    if (guardUn[c.id]) return;
+    guardUn[c.id] = db.collection("conversations").doc(c.id).collection("mc").doc("state").onSnapshot(s => checkZones(c, (s.data() && s.data().players) || []), () => {});
+  });
+}
+function stopGuard() { zonesUn && zonesUn(); zonesUn = null; Object.values(guardUn).forEach(f => f()); guardUn = {}; inside = {}; zonesAll = []; }
+function checkZones(c, players) {
+  const mine = (me.mcName || "").toLowerCase(); if (!mine) return;
+  zonesAll.filter(z => z.convId === c.id && z.enabled !== false).forEach(z => {
+    const ok = (z.allowed || []).map(x => x.toLowerCase());
+    const now = new Set(players.filter(p => p.name.toLowerCase() !== mine && !ok.includes(p.name.toLowerCase()) && Math.hypot(p.x - z.cx, p.z - z.cz) <= z.r).map(p => p.name));
+    const prev = inside[z.id] || new Set();
+    now.forEach(n => { if (!prev.has(n)) alertZone(c, z, n); });
+    inside[z.id] = now;
+  });
+}
+function alertZone(c, z, who) {
+  const text = "🚨 " + who + " est entré dans ta zone « " + z.name + " » (" + title(c) + ")";
+  alertLog.unshift({ t: Date.now(), convId: c.id, text }); alertLog = alertLog.slice(0, 50);
+  toast(text, 9000); beep(); try { navigator.vibrate && navigator.vibrate([300, 150, 300]); } catch (e) { }
+  try { if (window.Notification && Notification.permission === "granted") new Notification("HMD Hub — zone de sécurité", { body: text }); } catch (e) { }
+  zoneCbs.forEach(f => f());
+}
+function banBox() {
+  const b = el("div", "box"), r = el("div", "row"), bb = el("button", "btn sm bad", "Bannir"), ub = el("button", "btn sm ghost", "Débannir");
+  r.append(bb, ub); b.append(el("b", "", "Bannissements"), r);
+  bb.onclick = () => dlg("Bannir un joueur", (c, close) => {
+    const why = el("input"); why.placeholder = "Raison (facultatif)"; why.maxLength = 80; c.append(why);
+    const doBan = async name => {
+      if (!confirm("Bannir " + name + " ?")) return;
+      const reason = why.value.replace(/[\r\n]+/g, " ").trim();
+      await sendCmd("cmd", "ban " + name + (reason ? " " + reason : ""));
+      try { await sub("bans").doc(name.toLowerCase()).set({ name, by: me.name, reason, active: true, at: FV.serverTimestamp() }); } catch (e) { }
+      close();
+    };
+    c.append(el("p", "sub", "Joueurs connectés :"));
+    if (!lastPlayers.length) c.append(el("p", "sub", "Personne n’est connecté."));
+    lastPlayers.forEach(x => { const k = el("button", "btn ghost", x.name); k.onclick = () => doBan(x.name); c.append(k); });
+    const m = el("input"); m.placeholder = "Ou un pseudo (même hors ligne)"; const mk = el("button", "btn bad", "Bannir ce pseudo");
+    mk.onclick = () => { const n = m.value.trim(); if (!MCRE.test(n)) return toast("Pseudo invalide."); doBan(n); };
+    c.append(m, mk);
+  });
+  ub.onclick = () => dlg("Débannir un joueur", (c, close) => {
+    const l = el("div"); l.style.cssText = "display:flex;flex-direction:column;gap:8px";
+    const unban = async name => { await sendCmd("cmd", "pardon " + name); try { await sub("bans").doc(name.toLowerCase()).set({ active: false }, { merge: true }); } catch (e) { } close(); };
+    c.append(el("p", "sub", "Bannis depuis le site :"), l);
+    sub("bans").where("active", "==", true).get().then(s => {
+      if (s.empty) l.append(el("p", "sub", "Aucun bannissement enregistré par le site."));
+      s.docs.forEach(d => { const k = el("button", "btn ghost", "Débannir " + d.data().name + (d.data().reason ? " — " + d.data().reason : "")); k.onclick = () => unban(d.data().name); l.append(k); });
+    }).catch(e => l.append(el("p", "err", e.message)));
+    const m = el("input"); m.placeholder = "Ou saisis un pseudo"; const mk = el("button", "btn", "Débannir ce pseudo");
+    mk.onclick = () => { const n = m.value.trim(); if (!MCRE.test(n)) return toast("Pseudo invalide."); unban(n); };
+    c.append(m, mk);
+  });
+  return b;
+}
+
 /* ---------- Chat ---------- */
 function vChat(v) {
   const box = el("div"); box.id = "msgs"; const f = el("form", "compose"), i = el("input"); i.placeholder = "Écris un message…"; i.maxLength = 1000; i.autocomplete = "off";
@@ -244,20 +320,53 @@ function vChat(v) {
   unsubs.push(sub("messages").orderBy("createdAt", "desc").limit(150).onSnapshot(s => {
     box.textContent = ""; const arr = s.docs.map(d => d.data()).reverse();
     if (!arr.length) { const e = el("div", "empty"); e.append(el("h3", "", "Aucun message"), el("p", "", "Lance la conversation.")); box.append(e); return; }
-    arr.forEach(m => { const d = el("div", "m" + (m.uid === me.uid ? " me2" : "")), w = el("div", "w", m.name); if (m.src === "mc") w.append(el("span", "tag", "Minecraft")); d.append(w, el("div", "t", m.text)); box.append(d); });
+    arr.forEach(m => { if (m.sys) { box.append(el("div", "sys", m.text)); return; } const d = el("div", "m" + (m.uid === me.uid ? " me2" : "")), w = el("div", "w", m.name); if (m.src === "mc") w.append(el("span", "tag", "Minecraft")); d.append(w, el("div", "t", m.text)); box.append(d); });
     box.scrollTop = box.scrollHeight;
   }));
 }
-async function addMember() {
-  const raw = prompt("Nom d’utilisateur à ajouter :"); if (!raw || !clean(raw)) return;
+function dlg(titre, build) {
+  const bg = el("div", "modal"), c = el("div", "card"), close = () => bg.remove();
+  c.append(el("div", "logo", titre)); build(c, close);
+  const x = el("button", "btn ghost", "Fermer"); x.onclick = close; c.append(x); bg.append(c); bg.onclick = e => { if (e.target === bg) close(); }; document.body.append(bg);
+}
+async function addByName(raw) {
+  if (!raw || !clean(raw)) return false;
   try {
     const s = await db.collection("users").where("nameLower", "==", clean(raw)).get();
-    if (s.empty) return toast("Aucun utilisateur « " + raw.trim() + " ». Il doit s’être connecté au moins une fois.");
+    if (s.empty) { toast("Aucun utilisateur « " + raw.trim() + " ». Il doit s’être connecté au moins une fois."); return false; }
     const d = s.docs[0];
-    if (cur.members.includes(d.id)) return toast(d.data().name + " est déjà dans le groupe.");
+    if (cur.members.includes(d.id)) { toast(d.data().name + " est déjà dans le groupe."); return false; }
     await db.collection("conversations").doc(cur.id).update({ members: FV.arrayUnion(d.id), ["names." + d.id]: d.data().name });
-    toast(d.data().name + " ajouté.");
-  } catch (x) { toast("Impossible d’ajouter : " + x.message); }
+    toast(d.data().name + " ajouté."); return true;
+  } catch (x) { toast("Impossible d’ajouter : " + x.message); return false; }
+}
+async function makeInvite() {
+  const t = [...crypto.getRandomValues(new Uint8Array(12))].map(b => b.toString(36).padStart(2, "0")).join("").slice(0, 20);
+  await db.collection("invites").doc(t).set({ convId: cur.id, convName: title(cur), createdBy: me.uid, expiresAt: Date.now() + 7 * 864e5 });
+  return location.origin + location.pathname + "?join=" + t;
+}
+function addMember() {
+  dlg("Ajouter un membre", (c, close) => {
+    const i = el("input"); i.placeholder = "Nom d’utilisateur"; const ok = el("button", "btn", "Ajouter");
+    ok.onclick = async () => { if (await addByName(i.value)) close(); };
+    const lk = el("input"); lk.readOnly = true; lk.classList.add("hide"); const cp = el("button", "btn ghost", "Copier un lien d’invitation");
+    cp.onclick = async () => {
+      try { const l = await makeInvite(); lk.value = l; lk.classList.remove("hide"); try { await navigator.clipboard.writeText(l); toast("Lien copié (valable 7 jours)."); } catch (e) { lk.select(); toast("Copie le lien ci-dessous."); } }
+      catch (x) { toast("Erreur : " + x.message); }
+    };
+    c.append(i, ok, el("p", "sub", "Ou envoie un lien : la personne crée son compte et entre directement dans le groupe."), cp, lk);
+  });
+}
+async function joinInvite() {
+  const t = pendingJoin; pendingJoin = null; history.replaceState(null, "", location.pathname);
+  try {
+    const inv = await db.collection("invites").doc(t).get();
+    if (!inv.exists || inv.data().expiresAt < Date.now()) return toast("Lien d’invitation invalide ou expiré.", 5000);
+    const id = inv.data().convId, ref = db.collection("conversations").doc(id);
+    let already = false; try { const c = await ref.get(); already = c.exists && c.data().members.includes(me.uid); } catch (e) { }
+    if (!already) await ref.update({ members: FV.arrayUnion(me.uid), ["names." + me.uid]: me.name, inviteUsed: t });
+    pendingOpen = id; toast("Tu as rejoint « " + inv.data().convName + " » !", 4000);
+  } catch (x) { toast("Impossible de rejoindre : " + x.message, 6000); }
 }
 
 /* ---------- Création ---------- */
@@ -338,14 +447,25 @@ function vMap(v, edit) {
   const p = el("div", edit ? "" : "pad"), bar = el("div", "row"), cv = el("canvas"), box = el("div", "box");
   cv.id = "map"; cv.style.cssText = "touch-action:none;cursor:grab" + (edit ? ";flex:none;height:380px" : "");
   if (edit) p.style.cssText = "display:flex;flex-direction:column;gap:10px";
-  let pl = [], V = { x: 0, z: 0, k: 2 }, fitted = false, hits = [], IMG = null, imgMode = false; const img = new Image(); img.onload = () => draw();
+  let pl = [], V = { x: 0, z: 0, k: 2 }, fitted = false, hits = [], IMG = null, imgMode = false, dz = null, drawing = false, dzb = null, finishZone = null; const imgEdit = edit === true, zoneMode = edit === "zone"; const img = new Image(); img.onload = () => draw();
   const size = () => cv.getBoundingClientRect();
+  const toWorld = (sx, sy) => { const r = size(); return { x: V.x + (sx - r.width / 2) / V.k, z: V.z + (sy - r.height / 2) / V.k }; };
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n);
   const fit = () => {
     const r = size(); if (!pl.length) { if (IMG && img.naturalWidth) { V.x = IMG.cx; V.z = IMG.cz; V.k = Math.min(r.width / (img.naturalWidth * IMG.bpp), r.height / (img.naturalHeight * IMG.bpp)) * .95; } else V = { x: 0, z: 0, k: 2 }; return; }
     let a = 1e9, b = -1e9, c = 1e9, d = -1e9; pl.forEach(q => { a = Math.min(a, q.x); b = Math.max(b, q.x); c = Math.min(c, q.z); d = Math.max(d, q.z); });
     V.x = (a + b) / 2; V.z = (c + d) / 2; V.k = Math.min(8, Math.max(.05, Math.min(r.width, r.height) * .7 / Math.max(b - a, d - c, 40)));
   };
+  const zoneDraw = (g, X, Z, tx) => {
+    if (!zoneMode) return;
+    const list = zonesAll.filter(z => z.convId === cur.id).concat(dz ? [{ cx: dz.cx, cz: dz.cz, r: dz.r, name: "Nouvelle zone", tmp: true }] : []);
+    list.forEach(z => {
+      const off = z.enabled === false; g.beginPath(); g.arc(X(z.cx), Z(z.cz), Math.max(2, z.r * V.k), 0, 7);
+      g.fillStyle = off ? "rgba(130,130,130,.2)" : "rgba(255,80,100,.22)"; g.fill(); g.strokeStyle = off ? "#888" : "#ff5064"; g.lineWidth = 2; g.setLineDash(z.tmp ? [6, 4] : []); g.stroke(); g.setLineDash([]);
+      g.fillStyle = tx; g.font = "600 12px Sora,sans-serif"; g.textAlign = "center"; g.fillText(z.name + (z.tmp ? " · " + Math.round(z.r) + " blocs" : ""), X(z.cx), Z(z.cz) - 4); g.textAlign = "left";
+    });
+  };
+
   const draw = () => {
     const r = size(), dp = devicePixelRatio || 1; cv.width = r.width * dp; cv.height = r.height * dp;
     const g = cv.getContext("2d"), W = r.width, H = r.height; g.setTransform(dp, 0, 0, dp, 0, 0);
@@ -355,13 +475,13 @@ function vMap(v, edit) {
     if (IMG && img.complete && img.naturalWidth) {
       const iw = img.naturalWidth * IMG.bpp * V.k, ih = img.naturalHeight * IMG.bpp * V.k;
       g.globalAlpha = IMG.op == null ? 1 : IMG.op; g.drawImage(img, X(IMG.cx) - iw / 2, Z(IMG.cz) - ih / 2, iw, ih); g.globalAlpha = 1;
-      if (edit) { g.strokeStyle = acc; g.lineWidth = 2; g.setLineDash([8, 5]); g.strokeRect(X(IMG.cx) - iw / 2, Z(IMG.cz) - ih / 2, iw, ih); g.setLineDash([]); g.lineWidth = 1; }
+      if (imgEdit) { g.strokeStyle = acc; g.lineWidth = 2; g.setLineDash([8, 5]); g.strokeRect(X(IMG.cx) - iw / 2, Z(IMG.cz) - ih / 2, iw, ih); g.setLineDash([]); g.lineWidth = 1; }
       g.globalAlpha = .45;
     }
     g.font = "11px Sora,sans-serif"; g.lineWidth = 1; g.textAlign = "left";
     for (let x = Math.floor((V.x - W / 2 / V.k) / step) * step; x <= V.x + W / 2 / V.k; x += step) { g.strokeStyle = x === 0 ? mut : line; g.beginPath(); g.moveTo(X(x), 0); g.lineTo(X(x), H); g.stroke(); g.fillStyle = mut; g.fillText(x, X(x) + 3, 12); }
     for (let z = Math.floor((V.z - H / 2 / V.k) / step) * step; z <= V.z + H / 2 / V.k; z += step) { g.strokeStyle = z === 0 ? mut : line; g.beginPath(); g.moveTo(0, Z(z)); g.lineTo(W, Z(z)); g.stroke(); g.fillStyle = mut; g.fillText(z, 4, Z(z) - 3); }
-    g.globalAlpha = 1; hits = []; g.font = "600 12px Sora,sans-serif";
+    g.globalAlpha = 1; zoneDraw(g, X, Z, tx); hits = []; g.font = "600 12px Sora,sans-serif";
     pl.forEach(q => { const px = X(q.x), py = Z(q.z); hits.push({ name: q.name, x: px, y: py }); g.fillStyle = acc; g.beginPath(); g.arc(px, py, 8, 0, 7); g.fill(); g.strokeStyle = tx; g.lineWidth = 2; g.stroke(); g.fillStyle = tx; g.fillText(q.name, px + 12, py + 4); });
     if (!pl.length) { g.fillStyle = mut; g.textAlign = "center"; g.fillText("Aucun joueur connecté", W / 2, H / 2); }
   };
@@ -374,19 +494,38 @@ function vMap(v, edit) {
   mk("＋", () => zoom(1.4)); mk("－", () => zoom(1 / 1.4)); mk("Centrer sur les joueurs", () => { fit(); draw(); });
   const ptrs = new Map(); let moved = 0, pd = 0;
   const two = () => { const a = [...ptrs.values()]; return { d: Math.hypot(a[0].x - a[1].x, a[0].y - a[1].y), x: (a[0].x + a[1].x) / 2, y: (a[0].y + a[1].y) / 2 }; };
-  cv.onpointerdown = e => { cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.offsetX, y: e.offsetY }); moved = 0; cv.style.cursor = "grabbing"; if (ptrs.size === 2) pd = two().d; };
+  cv.onpointerdown = e => { if (zoneMode && drawing && !ptrs.size) { const w = toWorld(e.offsetX, e.offsetY); dz = { cx: w.x, cz: w.z, r: 0 }; } cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.offsetX, y: e.offsetY }); moved = 0; cv.style.cursor = "grabbing"; if (ptrs.size === 2) pd = two().d; };
   cv.onpointermove = e => {
+    if (dz) { const w = toWorld(e.offsetX, e.offsetY); dz.r = Math.hypot(w.x - dz.cx, w.z - dz.cz); draw(); return; }
     const o = ptrs.get(e.pointerId); if (!o) return; const n = { x: e.offsetX, y: e.offsetY };
     if (ptrs.size === 1) { if (edit && imgMode && IMG) { IMG.cx += (n.x - o.x) / V.k; IMG.cz += (n.y - o.y) / V.k; } else { V.x -= (n.x - o.x) / V.k; V.z -= (n.y - o.y) / V.k; } moved += Math.abs(n.x - o.x) + Math.abs(n.y - o.y); ptrs.set(e.pointerId, n); draw(); }
     else { ptrs.set(e.pointerId, n); const t = two(); if (pd) zoom(t.d / pd, t.x, t.y); pd = t.d; moved = 99; }
   };
   cv.onpointerup = cv.onpointercancel = e => {
+    if (dz) { ptrs.delete(e.pointerId); finishZone && finishZone(); return; }
     const was = ptrs.size; ptrs.delete(e.pointerId); pd = 0; cv.style.cursor = "grab";
     if (!edit && was === 1 && moved < 6) { let best = null, bd = 18; hits.forEach(h => { const d = Math.hypot(h.x - e.offsetX, h.y - e.offsetY); if (d < bd) { bd = d; best = h; } }); if (best) tpTo(best.name); }
   };
   cv.addEventListener("wheel", e => { e.preventDefault(); zoom(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.offsetX, e.offsetY); }, { passive: false });
   const mb = el("button", "btn sm ghost", me.mcName ? "Mon pseudo : " + me.mcName : "Mon pseudo Minecraft"); mb.onclick = async () => { if (await saveMc()) mb.textContent = "Mon pseudo : " + me.mcName; }; bar.append(mb);
   if (!edit) p.append(bar, cv, el("p", "sub", "Glisse pour déplacer la carte, molette ou deux doigts pour zoomer. Clique sur un joueur pour te téléporter à lui."), box);
+  else if (zoneMode) {
+    dzb = el("button", "btn sm", "Dessiner une zone");
+    dzb.onclick = async () => {
+      if (!me.mcName && !await saveMc()) return;
+      drawing = !drawing; dzb.textContent = drawing ? "Annuler le dessin" : "Dessiner une zone"; cv.style.cursor = drawing ? "crosshair" : "grab";
+      if (drawing) toast("Appuie au centre de la zone, puis glisse pour agrandir le cercle.", 4500);
+    };
+    finishZone = async () => {
+      const z = dz; dz = null; drawing = false; dzb.textContent = "Dessiner une zone"; cv.style.cursor = "grab"; draw();
+      if (z.r < 3) return toast("Zone trop petite.");
+      const name = prompt("Nom de la zone :", "Ma base"); if (!name) return;
+      try { await db.collection("zones").add({ owner: me.uid, ownerName: me.name, convId: cur.id, name: name.trim().slice(0, 30), cx: Math.round(z.cx), cz: Math.round(z.cz), r: Math.round(z.r), allowed: [], enabled: true, createdAt: FV.serverTimestamp() }); toast("Zone créée."); } catch (e) { toast("Erreur : " + e.message); }
+    };
+    bar.prepend(dzb); zoneCbs.add(draw); unsubs.push(() => zoneCbs.delete(draw));
+    p.append(bar, cv, el("p", "sub", "Glisse pour te déplacer, molette ou deux doigts pour zoomer. « Dessiner une zone » : appuie au centre puis glisse pour tracer le cercle."));
+  }
+
   else {
     const ed = el("div", "box"), fi = el("input"), r1 = el("div", "row"), r2 = el("div", "row"), sz = el("input"), op = el("input"), mode = el("button", "btn sm", "Mode : déplacer la vue");
     fi.type = "file"; fi.accept = "image/*";
@@ -419,6 +558,36 @@ function vMap(v, edit) {
   unsubs.push(watchState(s => { pl = (s.data() && s.data().players) || []; if (!fitted) { fit(); fitted = pl.length > 0; } draw(); if (!edit) { box.textContent = ""; box.append(el("b", "", "Joueurs en ligne")); const l = el("div"); playerRows(l, pl); box.append(l); } }));
   unsubs.push(sub("mc").doc("mapimg").onSnapshot(sn => { const d = sn.data(); IMG = d && d.data ? { data: d.data, cx: d.cx, cz: d.cz, bpp: d.bpp, op: d.op } : null; if (IMG && img.getAttribute("src") !== IMG.data) { img.onload = () => { if (!fitted && !pl.length) fit(); draw(); }; img.src = IMG.data; } else draw(); }, () => {}));
   addEventListener("resize", draw); unsubs.push(() => removeEventListener("resize", draw)); requestAnimationFrame(draw);
+}
+
+/* ---------- Sécurité ---------- */
+function vSec(v) {
+  const p = el("div", "pad"), info = el("div", "box"), mapb = el("div", "box"), lst = el("div", "box"), log = el("div", "box");
+  const r1 = el("div", "row"), nb = el("button", "btn sm ghost", "Activer les notifications"), mb = el("button", "btn sm ghost", me.mcName ? "Mon pseudo : " + me.mcName : "Définir mon pseudo Minecraft");
+  nb.onclick = async () => { try { const r = await Notification.requestPermission(); toast(r === "granted" ? "Notifications activées." : "Notifications refusées."); } catch (e) { toast("Notifications indisponibles ici."); } };
+  mb.onclick = async () => { if (await saveMc()) mb.textContent = "Mon pseudo : " + me.mcName; };
+  r1.append(nb, mb);
+  info.append(el("b", "", "Zones de sécurité"), el("p", "sub", "Entoure un endroit sur la carte. Si un autre joueur y entre, tu reçois une alerte (message, son, notification). Les zones sont privées : chacun a les siennes.\nLe site doit rester ouvert, même en arrière-plan, pour recevoir les alertes. Ton pseudo Minecraft sert à ne pas t’alerter toi-même."), r1);
+  const mh = el("div"); mapb.append(mh); vMap(mh, "zone");
+  const render = () => {
+    lst.textContent = ""; lst.append(el("b", "", "Mes zones"));
+    const zs = zonesAll.filter(z => z.convId === cur.id);
+    if (!zs.length) lst.append(el("p", "sub", "Aucune zone pour l’instant."));
+    zs.forEach(z => {
+      const r = el("div", "pl"), t = el("span", "", z.name + " · rayon " + z.r + " blocs" + (z.enabled === false ? " (désactivée)" : "") + ((z.allowed || []).length ? " · autorisés : " + z.allowed.join(", ") : ""));
+      const bx = el("div", "row"), on = el("button", "btn sm ghost", z.enabled === false ? "Activer" : "Désactiver"), al = el("button", "btn sm ghost", "Autorisés"), de = el("button", "btn sm bad", "Supprimer");
+      on.onclick = () => db.collection("zones").doc(z.id).update({ enabled: z.enabled === false }).catch(e => toast(e.message));
+      al.onclick = () => { const x = prompt("Joueurs autorisés dans cette zone (pseudos Minecraft séparés par des virgules) :", (z.allowed || []).join(", ")); if (x === null) return; const arr = x.split(",").map(q => q.trim()).filter(Boolean); if (arr.some(q => !MCRE.test(q))) return toast("Pseudo invalide."); db.collection("zones").doc(z.id).update({ allowed: arr }).catch(e => toast(e.message)); };
+      de.onclick = () => confirm("Supprimer la zone « " + z.name + " » ?") && db.collection("zones").doc(z.id).delete().catch(e => toast(e.message));
+      bx.append(on, al, de); r.append(t, bx); lst.append(r);
+    });
+    log.textContent = ""; log.append(el("b", "", "Dernières alertes"));
+    const al2 = alertLog.filter(a => a.convId === cur.id).slice(0, 15);
+    if (!al2.length) log.append(el("p", "sub", "Aucune alerte depuis l’ouverture du site."));
+    al2.forEach(a => log.append(el("div", "pl", new Date(a.t).toLocaleTimeString("fr-FR") + " — " + a.text)));
+  };
+  render(); zoneCbs.add(render); unsubs.push(() => zoneCbs.delete(render));
+  p.append(info, mapb, lst, log); v.append(p);
 }
 
 /* ---------- Monde (Squaremap) ---------- */
@@ -537,7 +706,7 @@ function vAdm(v) {
   cf.onsubmit = e => { e.preventDefault(); const t = ci.value.trim().replace(/^\//, ""); if (t) { send("cmd", t); ci.value = ""; } };
   const cc = el("div", "box"); cc.append(el("b", "", "Console"), con, cf);
   const mb2 = el("div", "box"), mh = el("div"); mb2.append(el("b", "", "Image de la carte"), mh); vMap(mh, true);
-  p.append(cb, mb2, gameBox(), pb, cc); v.append(p);
+  p.append(cb, banBox(), mb2, gameBox(), pb, cc); v.append(p);
   unsubs.push(watchState(s => {
     pl.textContent = ""; const a = s.data()?.players || [];
     if (!a.length) pl.append(el("p", "sub", "Personne en ligne."));
