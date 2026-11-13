@@ -320,14 +320,29 @@ function vSrv(v) {
 }
 
 /* ---------- Carte ---------- */
-function vMap(v) {
-  const p = el("div", "pad"), bar = el("div", "row"), cv = el("canvas"), box = el("div", "box");
-  cv.id = "map"; cv.style.cssText = "touch-action:none;cursor:grab";
-  let pl = [], V = { x: 0, z: 0, k: 2 }, fitted = false, hits = [];
+async function fileToData(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const im = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    let max = 1600, q = .85;
+    for (let t = 0; t < 10; t++) {
+      const k = Math.min(1, max / Math.max(im.width, im.height)), c = document.createElement("canvas");
+      c.width = Math.round(im.width * k); c.height = Math.round(im.height * k);
+      const g = c.getContext("2d"); g.fillStyle = "#fff"; g.fillRect(0, 0, c.width, c.height); g.drawImage(im, 0, 0, c.width, c.height);
+      const out = c.toDataURL("image/jpeg", q); if (out.length < 700000) return out; q = Math.max(.4, q - .1); max *= .8;
+    }
+    return null;
+  } finally { URL.revokeObjectURL(url); }
+}
+function vMap(v, edit) {
+  const p = el("div", edit ? "" : "pad"), bar = el("div", "row"), cv = el("canvas"), box = el("div", "box");
+  cv.id = "map"; cv.style.cssText = "touch-action:none;cursor:grab" + (edit ? ";flex:none;height:380px" : "");
+  if (edit) p.style.cssText = "display:flex;flex-direction:column;gap:10px";
+  let pl = [], V = { x: 0, z: 0, k: 2 }, fitted = false, hits = [], IMG = null, imgMode = false; const img = new Image(); img.onload = () => draw();
   const size = () => cv.getBoundingClientRect();
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n);
   const fit = () => {
-    const r = size(); if (!pl.length) { V = { x: 0, z: 0, k: 2 }; return; }
+    const r = size(); if (!pl.length) { if (IMG && img.naturalWidth) { V.x = IMG.cx; V.z = IMG.cz; V.k = Math.min(r.width / (img.naturalWidth * IMG.bpp), r.height / (img.naturalHeight * IMG.bpp)) * .95; } else V = { x: 0, z: 0, k: 2 }; return; }
     let a = 1e9, b = -1e9, c = 1e9, d = -1e9; pl.forEach(q => { a = Math.min(a, q.x); b = Math.max(b, q.x); c = Math.min(c, q.z); d = Math.max(d, q.z); });
     V.x = (a + b) / 2; V.z = (c + d) / 2; V.k = Math.min(8, Math.max(.05, Math.min(r.width, r.height) * .7 / Math.max(b - a, d - c, 40)));
   };
@@ -337,10 +352,16 @@ function vMap(v) {
     const line = css("--line"), mut = css("--mut"), acc = css("--acc"), tx = css("--tx");
     let step = 1; for (const q of [1, 2, 5, 10, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384]) { step = q; if (q * V.k >= 48) break; }
     const X = x => W / 2 + (x - V.x) * V.k, Z = z => H / 2 + (z - V.z) * V.k;
+    if (IMG && img.complete && img.naturalWidth) {
+      const iw = img.naturalWidth * IMG.bpp * V.k, ih = img.naturalHeight * IMG.bpp * V.k;
+      g.globalAlpha = IMG.op == null ? 1 : IMG.op; g.drawImage(img, X(IMG.cx) - iw / 2, Z(IMG.cz) - ih / 2, iw, ih); g.globalAlpha = 1;
+      if (edit) { g.strokeStyle = acc; g.lineWidth = 2; g.setLineDash([8, 5]); g.strokeRect(X(IMG.cx) - iw / 2, Z(IMG.cz) - ih / 2, iw, ih); g.setLineDash([]); g.lineWidth = 1; }
+      g.globalAlpha = .45;
+    }
     g.font = "11px Sora,sans-serif"; g.lineWidth = 1; g.textAlign = "left";
     for (let x = Math.floor((V.x - W / 2 / V.k) / step) * step; x <= V.x + W / 2 / V.k; x += step) { g.strokeStyle = x === 0 ? mut : line; g.beginPath(); g.moveTo(X(x), 0); g.lineTo(X(x), H); g.stroke(); g.fillStyle = mut; g.fillText(x, X(x) + 3, 12); }
     for (let z = Math.floor((V.z - H / 2 / V.k) / step) * step; z <= V.z + H / 2 / V.k; z += step) { g.strokeStyle = z === 0 ? mut : line; g.beginPath(); g.moveTo(0, Z(z)); g.lineTo(W, Z(z)); g.stroke(); g.fillStyle = mut; g.fillText(z, 4, Z(z) - 3); }
-    hits = []; g.font = "600 12px Sora,sans-serif";
+    g.globalAlpha = 1; hits = []; g.font = "600 12px Sora,sans-serif";
     pl.forEach(q => { const px = X(q.x), py = Z(q.z); hits.push({ name: q.name, x: px, y: py }); g.fillStyle = acc; g.beginPath(); g.arc(px, py, 8, 0, 7); g.fill(); g.strokeStyle = tx; g.lineWidth = 2; g.stroke(); g.fillStyle = tx; g.fillText(q.name, px + 12, py + 4); });
     if (!pl.length) { g.fillStyle = mut; g.textAlign = "center"; g.fillText("Aucun joueur connecté", W / 2, H / 2); }
   };
@@ -356,17 +377,47 @@ function vMap(v) {
   cv.onpointerdown = e => { cv.setPointerCapture(e.pointerId); ptrs.set(e.pointerId, { x: e.offsetX, y: e.offsetY }); moved = 0; cv.style.cursor = "grabbing"; if (ptrs.size === 2) pd = two().d; };
   cv.onpointermove = e => {
     const o = ptrs.get(e.pointerId); if (!o) return; const n = { x: e.offsetX, y: e.offsetY };
-    if (ptrs.size === 1) { V.x -= (n.x - o.x) / V.k; V.z -= (n.y - o.y) / V.k; moved += Math.abs(n.x - o.x) + Math.abs(n.y - o.y); ptrs.set(e.pointerId, n); draw(); }
+    if (ptrs.size === 1) { if (edit && imgMode && IMG) { IMG.cx += (n.x - o.x) / V.k; IMG.cz += (n.y - o.y) / V.k; } else { V.x -= (n.x - o.x) / V.k; V.z -= (n.y - o.y) / V.k; } moved += Math.abs(n.x - o.x) + Math.abs(n.y - o.y); ptrs.set(e.pointerId, n); draw(); }
     else { ptrs.set(e.pointerId, n); const t = two(); if (pd) zoom(t.d / pd, t.x, t.y); pd = t.d; moved = 99; }
   };
   cv.onpointerup = cv.onpointercancel = e => {
     const was = ptrs.size; ptrs.delete(e.pointerId); pd = 0; cv.style.cursor = "grab";
-    if (was === 1 && moved < 6) { let best = null, bd = 18; hits.forEach(h => { const d = Math.hypot(h.x - e.offsetX, h.y - e.offsetY); if (d < bd) { bd = d; best = h; } }); if (best) tpTo(best.name); }
+    if (!edit && was === 1 && moved < 6) { let best = null, bd = 18; hits.forEach(h => { const d = Math.hypot(h.x - e.offsetX, h.y - e.offsetY); if (d < bd) { bd = d; best = h; } }); if (best) tpTo(best.name); }
   };
   cv.addEventListener("wheel", e => { e.preventDefault(); zoom(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.offsetX, e.offsetY); }, { passive: false });
   const mb = el("button", "btn sm ghost", me.mcName ? "Mon pseudo : " + me.mcName : "Mon pseudo Minecraft"); mb.onclick = async () => { if (await saveMc()) mb.textContent = "Mon pseudo : " + me.mcName; }; bar.append(mb);
-  p.append(bar, cv, el("p", "sub", "Glisse pour déplacer la carte, molette ou deux doigts pour zoomer. Clique sur un joueur pour te téléporter à lui."), box); v.append(p);
-  unsubs.push(watchState(s => { pl = (s.data() && s.data().players) || []; if (!fitted) { fit(); fitted = pl.length > 0; } draw(); box.textContent = ""; box.append(el("b", "", "Joueurs en ligne")); const l = el("div"); playerRows(l, pl); box.append(l); }));
+  if (!edit) p.append(bar, cv, el("p", "sub", "Glisse pour déplacer la carte, molette ou deux doigts pour zoomer. Clique sur un joueur pour te téléporter à lui."), box);
+  else {
+    const ed = el("div", "box"), fi = el("input"), r1 = el("div", "row"), r2 = el("div", "row"), sz = el("input"), op = el("input"), mode = el("button", "btn sm", "Mode : déplacer la vue");
+    fi.type = "file"; fi.accept = "image/*";
+    sz.type = op.type = "range"; sz.min = -5; sz.max = 6; sz.step = .01; op.min = .1; op.max = 1; op.step = .05; op.value = .8;
+    const lab = (t, i) => { const d = el("label", "sub", t); d.style.cssText = "display:flex;flex-direction:column;gap:4px;flex:1;min-width:140px"; d.append(i); return d; };
+    const need = () => { if (!IMG) { toast("Choisis d’abord une image."); return false; } return true; };
+    fi.onchange = async () => {
+      const f = fi.files[0]; if (!f) return;
+      try {
+        const data = await fileToData(f); if (!data) return toast("Image trop lourde, essaie une image plus simple.");
+        const r = size(); IMG = { data, cx: V.x, cz: V.z, bpp: 1, op: +op.value };
+        img.onload = () => { IMG.bpp = Math.max(.05, (r.width / V.k * .8) / img.naturalWidth); sz.value = Math.log2(IMG.bpp); draw(); }; img.src = data;
+      } catch (e) { toast("Image illisible."); }
+    };
+    sz.oninput = () => { if (IMG) { IMG.bpp = Math.pow(2, +sz.value); draw(); } };
+    op.oninput = () => { if (IMG) { IMG.op = +op.value; draw(); } };
+    mode.onclick = () => { if (!need()) return; imgMode = !imgMode; mode.textContent = imgMode ? "Mode : déplacer l’image" : "Mode : déplacer la vue"; cv.style.cursor = imgMode ? "move" : "grab"; };
+    const ctr = el("button", "btn sm ghost", "Centrer l’image sur la vue"); ctr.onclick = () => { if (need()) { IMG.cx = V.x; IMG.cz = V.z; draw(); } };
+    const save = el("button", "btn sm", "Enregistrer pour tout le monde"), del = el("button", "btn sm bad", "Supprimer l’image");
+    save.onclick = async () => {
+      if (!need()) return;
+      try { await sub("mc").doc("mapimg").set({ data: IMG.data, cx: IMG.cx, cz: IMG.cz, bpp: IMG.bpp, op: IMG.op, updatedAt: FV.serverTimestamp() }); toast("Image enregistrée : tout le monde la voit."); } catch (e) { toast("Erreur : " + e.message); }
+    };
+    del.onclick = async () => { if (!confirm("Supprimer l’image de la carte ?")) return; try { await sub("mc").doc("mapimg").delete(); IMG = null; img.removeAttribute("src"); draw(); toast("Image supprimée."); } catch (e) { toast(e.message); } };
+    r1.append(mode, ctr); r2.append(lab("Taille de l’image", sz), lab("Transparence", op));
+    ed.append(el("p", "sub", "1. Connecte-toi sur le serveur : ton point apparaît sur la carte.\n2. Choisis une image, passe en « déplacer l’image » et glisse-la pour que les points des joueurs tombent au bon endroit. Ajuste la taille.\n3. Repasse en « déplacer la vue » pour te déplacer ou zoomer, puis enregistre."), fi, r1, r2, el("div", "row")); ed.lastChild.append(save, del);
+    p.append(bar, cv, ed);
+  }
+  v.append(p);
+  unsubs.push(watchState(s => { pl = (s.data() && s.data().players) || []; if (!fitted) { fit(); fitted = pl.length > 0; } draw(); if (!edit) { box.textContent = ""; box.append(el("b", "", "Joueurs en ligne")); const l = el("div"); playerRows(l, pl); box.append(l); } }));
+  unsubs.push(sub("mc").doc("mapimg").onSnapshot(sn => { const d = sn.data(); IMG = d && d.data ? { data: d.data, cx: d.cx, cz: d.cz, bpp: d.bpp, op: d.op } : null; if (IMG && img.getAttribute("src") !== IMG.data) { img.onload = () => { if (!fitted && !pl.length) fit(); draw(); }; img.src = IMG.data; } else draw(); }, () => {}));
   addEventListener("resize", draw); unsubs.push(() => removeEventListener("resize", draw)); requestAnimationFrame(draw);
 }
 
@@ -485,7 +536,8 @@ function vAdm(v) {
   const cf = el("form", "compose"), ci = el("input"); ci.placeholder = "Commande (sans /)"; ci.autocomplete = "off"; cf.style.cssText = "padding:0;background:none;border:0"; cf.append(ci, el("button", "btn", "Exécuter"));
   cf.onsubmit = e => { e.preventDefault(); const t = ci.value.trim().replace(/^\//, ""); if (t) { send("cmd", t); ci.value = ""; } };
   const cc = el("div", "box"); cc.append(el("b", "", "Console"), con, cf);
-  p.append(cb, gameBox(), pb, cc); v.append(p);
+  const mb2 = el("div", "box"), mh = el("div"); mb2.append(el("b", "", "Image de la carte"), mh); vMap(mh, true);
+  p.append(cb, mb2, gameBox(), pb, cc); v.append(p);
   unsubs.push(watchState(s => {
     pl.textContent = ""; const a = s.data()?.players || [];
     if (!a.length) pl.append(el("p", "sub", "Personne en ligne."));
