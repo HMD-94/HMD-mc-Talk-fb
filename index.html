@@ -447,7 +447,7 @@ function vMap(v, edit) {
   const p = el("div", edit ? "" : "pad"), bar = el("div", "row"), cv = el("canvas"), box = el("div", "box");
   cv.id = "map"; cv.style.cssText = "touch-action:none;cursor:grab" + (edit ? ";flex:none;height:380px" : "");
   if (edit) p.style.cssText = "display:flex;flex-direction:column;gap:10px";
-  let pl = [], V = { x: 0, z: 0, k: 2 }, fitted = false, hits = [], IMG = null, imgMode = false, dz = null, drawing = false, dzb = null, finishZone = null; const imgEdit = edit === true, zoneMode = edit === "zone"; const img = new Image(); img.onload = () => draw();
+  let pl = [], V = { x: 0, z: 0, k: 2 }, fitted = false, onImgChange = null, hits = [], IMG = null, imgMode = false, dz = null, drawing = false, dzb = null, finishZone = null; const imgEdit = edit === true, zoneMode = edit === "zone"; const img = new Image(); img.onload = () => draw();
   const size = () => cv.getBoundingClientRect();
   const toWorld = (sx, sy) => { const r = size(); return { x: V.x + (sx - r.width / 2) / V.k, z: V.z + (sy - r.height / 2) / V.k }; };
   const css = n => getComputedStyle(document.documentElement).getPropertyValue(n);
@@ -503,7 +503,7 @@ function vMap(v, edit) {
   };
   cv.onpointerup = cv.onpointercancel = e => {
     if (dz) { ptrs.delete(e.pointerId); finishZone && finishZone(); return; }
-    const was = ptrs.size; ptrs.delete(e.pointerId); pd = 0; cv.style.cursor = "grab";
+    const was = ptrs.size; ptrs.delete(e.pointerId); pd = 0; cv.style.cursor = "grab"; if (edit === true && imgMode && IMG && moved > 0 && onImgChange) onImgChange();
     if (!edit && was === 1 && moved < 6) { let best = null, bd = 18; hits.forEach(h => { const d = Math.hypot(h.x - e.offsetX, h.y - e.offsetY); if (d < bd) { bd = d; best = h; } }); if (best) tpTo(best.name); }
   };
   cv.addEventListener("wheel", e => { e.preventDefault(); zoom(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.offsetX, e.offsetY); }, { passive: false });
@@ -537,17 +537,19 @@ function vMap(v, edit) {
       try {
         const data = await fileToData(f); if (!data) return toast("Image trop lourde, essaie une image plus simple.");
         const r = size(); IMG = { data, cx: V.x, cz: V.z, bpp: 1, op: +op.value };
-        img.onload = () => { IMG.bpp = Math.max(.05, (r.width / V.k * .8) / img.naturalWidth); sz.value = Math.log2(IMG.bpp); draw(); }; img.src = data;
+        img.onload = () => { IMG.bpp = Math.max(.05, (r.width / V.k * .8) / img.naturalWidth); sz.value = Math.log2(IMG.bpp); draw(); persist(true); }; img.src = data;
       } catch (e) { toast("Image illisible."); }
     };
-    sz.oninput = () => { if (IMG) { IMG.bpp = Math.pow(2, +sz.value); draw(); } };
-    op.oninput = () => { if (IMG) { IMG.op = +op.value; draw(); } };
+    sz.oninput = () => { if (IMG) { IMG.bpp = Math.pow(2, +sz.value); draw(); onImgChange(); } };
+    op.oninput = () => { if (IMG) { IMG.op = +op.value; draw(); onImgChange(); } };
     mode.onclick = () => { if (!need()) return; imgMode = !imgMode; mode.textContent = imgMode ? "Mode : déplacer l’image" : "Mode : déplacer la vue"; cv.style.cursor = imgMode ? "move" : "grab"; };
-    const ctr = el("button", "btn sm ghost", "Centrer l’image sur la vue"); ctr.onclick = () => { if (need()) { IMG.cx = V.x; IMG.cz = V.z; draw(); } };
+    const ctr = el("button", "btn sm ghost", "Centrer l’image sur la vue"); ctr.onclick = () => { if (need()) { IMG.cx = V.x; IMG.cz = V.z; draw(); onImgChange(); } };
+    const persist = async quiet => { if (!IMG) return; try { await sub("mc").doc("mapimg").set({ data: IMG.data, cx: IMG.cx, cz: IMG.cz, bpp: IMG.bpp, op: IMG.op, updatedAt: FV.serverTimestamp() }); if (!quiet) toast("Image enregistrée : tout le monde la voit."); } catch (e) { toast("Erreur : " + e.message); } };
+    let t = null; onImgChange = () => { clearTimeout(t); t = setTimeout(() => persist(true), 700); };
     const save = el("button", "btn sm", "Enregistrer pour tout le monde"), del = el("button", "btn sm bad", "Supprimer l’image");
     save.onclick = async () => {
       if (!need()) return;
-      try { await sub("mc").doc("mapimg").set({ data: IMG.data, cx: IMG.cx, cz: IMG.cz, bpp: IMG.bpp, op: IMG.op, updatedAt: FV.serverTimestamp() }); toast("Image enregistrée : tout le monde la voit."); } catch (e) { toast("Erreur : " + e.message); }
+      persist(false);
     };
     del.onclick = async () => { if (!confirm("Supprimer l’image de la carte ?")) return; try { await sub("mc").doc("mapimg").delete(); IMG = null; img.removeAttribute("src"); draw(); toast("Image supprimée."); } catch (e) { toast(e.message); } };
     r1.append(mode, ctr); r2.append(lab("Taille de l’image", sz), lab("Transparence", op));
@@ -556,7 +558,7 @@ function vMap(v, edit) {
   }
   v.append(p);
   unsubs.push(watchState(s => { pl = (s.data() && s.data().players) || []; if (!fitted) { fit(); fitted = pl.length > 0; } draw(); if (!edit) { box.textContent = ""; box.append(el("b", "", "Joueurs en ligne")); const l = el("div"); playerRows(l, pl); box.append(l); } }));
-  unsubs.push(sub("mc").doc("mapimg").onSnapshot(sn => { const d = sn.data(); IMG = d && d.data ? { data: d.data, cx: d.cx, cz: d.cz, bpp: d.bpp, op: d.op } : null; if (IMG && img.getAttribute("src") !== IMG.data) { img.onload = () => { if (!fitted && !pl.length) fit(); draw(); }; img.src = IMG.data; } else draw(); }, () => {}));
+  unsubs.push(sub("mc").doc("mapimg").onSnapshot(sn => { if (sn.metadata && sn.metadata.hasPendingWrites) return; const d = sn.data(); IMG = d && d.data ? { data: d.data, cx: d.cx, cz: d.cz, bpp: d.bpp, op: d.op } : null; if (IMG && img.getAttribute("src") !== IMG.data) { img.onload = () => { if (!fitted && !pl.length) fit(); draw(); }; img.src = IMG.data; } else draw(); }, () => {}));
   addEventListener("resize", draw); unsubs.push(() => removeEventListener("resize", draw)); requestAnimationFrame(draw);
 }
 
