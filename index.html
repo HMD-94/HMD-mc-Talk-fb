@@ -193,7 +193,7 @@ function drawList() {
   convs.forEach(c => {
     const b = el("button", "ci" + (cur && cur.id === c.id ? " on" : "")), a = el("div", "av" + (c.type === "mc" ? " mc" : ""), c.type === "mc" ? "⛏" : title(c).slice(0, 1).toUpperCase());
     const d = el("div"); d.append(el("div", "n", title(c)), el("div", "s", c.type === "mc" ? "Groupe Minecraft" : c.type === "dm" ? "Message privé" : `Groupe · ${c.members.length} membres`));
-    b.append(a, d); b.onclick = () => open(c); l.append(b);
+    b.append(a, d); b.onclick = () => { open(c); if (c.type === "mc" && triple(c.id)) toggleFs(); }; l.append(b);
   });
 }
 function home() {
@@ -208,7 +208,7 @@ function open(c) { cur = c; tab = "chat"; adminOK = false; side(false); drawList
 function shell() {
   const m = $("#main"); m.textContent = "";
   const t = el("div", "top"), bg = el("button", "", "☰"); bg.id = "burger"; bg.onclick = () => side(true);
-  const h = el("h2"); h.id = "ct"; t.append(bg, h);
+  const h = el("h2"); h.id = "ct"; h.onclick = () => { if (cur.type === "mc" && triple("h" + cur.id)) toggleFs(); }; t.append(bg, h);
   if (cur.type !== "dm") { const a = el("button", "btn sm ghost", "+ Membre"); a.onclick = addMember; t.append(a); }
   m.append(t);
   if (cur.type === "mc") { const mt = el("div", "mt"); mt.id = "mt"; [["chat", "Discussion"], ["srv", "Serveur"], ["map", "Carte"], ["world", "Monde"], ["sec", "Sécurité"], ["adm", "Admin"]].forEach(([k, v]) => { const b = el("button", "", v); b.dataset.k = k; b.onclick = () => { tab = k; show(); }; mt.append(b); }); m.append(mt); }
@@ -690,6 +690,124 @@ function gameBox() {
   return b;
 }
 
+/* ---------- Triple clic + plein écran ---------- */
+let tapN = 0, tapT = 0, tapId = null;
+function triple(id) { const n = Date.now(); tapN = (tapId === id && n - tapT < 700) ? tapN + 1 : 1; tapId = id; tapT = n; if (tapN >= 3) { tapN = 0; return true; } return false; }
+function toggleFs() { try { const d = document, e = d.documentElement; if (d.fullscreenElement || d.webkitFullscreenElement) (d.exitFullscreen || d.webkitExitFullscreen).call(d); else (e.requestFullscreen || e.webkitRequestFullscreen).call(e); } catch (x) { } }
+
+/* ---------- Admin panel ---------- */
+const ENCH = { sword: "sharpness:255,looting:10,fire_aspect:10,knockback:5,sweeping_edge:10,unbreaking:255,mending:1", pick: "efficiency:255,fortune:10,unbreaking:255,mending:1", axe: "sharpness:255,efficiency:255,fortune:10,unbreaking:255,mending:1", shovel: "efficiency:255,fortune:10,unbreaking:255,mending:1", bow: "power:255,punch:5,flame:1,infinity:1,unbreaking:255", xbow: "quick_charge:5,multishot:1,piercing:10,unbreaking:255,mending:1", trident: "impaling:255,loyalty:5,channeling:1,unbreaking:255,mending:1", mace: "density:10,breach:7,wind_burst:3,fire_aspect:10,unbreaking:255,mending:1", helmet: "protection:255,respiration:5,aqua_affinity:1,unbreaking:255,mending:1", armor: "protection:255,unbreaking:255,mending:1", boots: "protection:255,feather_falling:255,depth_strider:3,soul_speed:3,unbreaking:255,mending:1", rod: "luck_of_the_sea:10,lure:10,unbreaking:255,mending:1", x: "unbreaking:255,mending:1" };
+const ITEMS = [["netherite_sword", "Épée", "sword"], ["netherite_pickaxe", "Pioche", "pick"], ["netherite_axe", "Hache", "axe"], ["netherite_shovel", "Pelle", "shovel"], ["bow", "Arc", "bow"], ["crossbow", "Arbalète", "xbow"], ["trident", "Trident", "trident"], ["mace", "Masse", "mace"], ["netherite_helmet", "Casque", "helmet"], ["netherite_chestplate", "Plastron", "armor"], ["netherite_leggings", "Jambières", "armor"], ["netherite_boots", "Bottes", "boots"], ["fishing_rod", "Canne à pêche", "rod"], ["elytra", "Élytres", "x"], ["shield", "Bouclier", "x"]];
+const giveCmd = (t, i, n, en) => "give " + t + " minecraft:" + i[0] + (en ? "[enchantments={" + ENCH[i[2]] + "},unbreakable={}]" : "") + " " + n;
+const EF = (n, s, d) => ["Effets", n, t => `effect give ${t} ${s} ${d || 600} 10 true`];
+const GV = (n, id, c) => ["Items", n, t => `give ${t} minecraft:${id} ${c}`];
+const SND = (n, s) => ["Messages", n, t => `playsound minecraft:${s} master ${t}`];
+const NUM = /^\d+$/, XYZ = /^-?\d+(\.\d+)? -?\d+(\.\d+)? -?\d+(\.\d+)?$/;
+const jt = (x, c) => JSON.stringify({ text: x, color: c || "white", bold: true });
+const CMDS = [
+  ["Joueurs", "Tuer", t => `kill ${t}`, { warn: 1 }],
+  ["Joueurs", "Tuer tous les joueurs", () => "kill @a", { warn: 1 }],
+  ["Joueurs", "Soigner", t => [`effect give ${t} instant_health 1 255 true`, `effect give ${t} saturation 5 255 true`]],
+  ["Joueurs", "Nourrir", t => `effect give ${t} saturation 5 255 true`],
+  ["Joueurs", "Créatif", t => `gamemode creative ${t}`], ["Joueurs", "Survie", t => `gamemode survival ${t}`],
+  ["Joueurs", "Aventure", t => `gamemode adventure ${t}`], ["Joueurs", "Spectateur", t => `gamemode spectator ${t}`],
+  ["Joueurs", "Vider l’inventaire", t => `clear ${t}`, { warn: 1 }],
+  ["Joueurs", "+1000 niveaux XP", t => `xp add ${t} 1000 levels`], ["Joueurs", "Reset XP", t => `xp set ${t} 0 levels`],
+  ["Joueurs", "Expulser (kick)", (t, i) => `${t} ${i}`.trim(), { one: 1, type: "kick", ask: "Raison (facultatif) :" }],
+  ["Joueurs", "Op", t => `op ${t}`, { one: 1 }], ["Joueurs", "Deop", t => `deop ${t}`, { one: 1 }],
+  ["Joueurs", "Foudre", t => `execute at ${t} run summon lightning_bolt`], ["Joueurs", "TNT sur la cible", t => `execute at ${t} run summon tnt`],
+  ["Joueurs", "Propulser en l’air", t => `execute as ${t} at @s run tp @s ~ ~50 ~`],
+  ["TP", "Tous → joueur choisi", t => `tp @a ${t}`, { one: 1 }],
+  ["TP", "Moi → cible", t => me.mcName ? `tp ${me.mcName} ${t}` : null, { one: 1 }],
+  ["TP", "Cible → moi", t => me.mcName ? `tp ${t} ${me.mcName}` : null],
+  ["TP", "Cible → coordonnées", (t, i) => `tp ${t} ${i}`, { ask: "Coordonnées x y z :", def: "0 100 0", re: XYZ }],
+  EF("Vitesse", "speed"), EF("Super saut", "jump_boost"), EF("Force", "strength"), EF("Invincible (1h)", "resistance", 3600), EF("Vision nocturne", "night_vision", 3600),
+  EF("Invisible", "invisibility"), EF("Respirer sous l’eau", "water_breathing", 3600), EF("Anti-feu", "fire_resistance", 3600), EF("Régénération", "regeneration"),
+  EF("Absorption", "absorption"), EF("Lévitation", "levitation", 10), EF("Brillance", "glowing"), EF("Chute lente", "slow_falling"), EF("Précipitation", "haste"),
+  ["Effets", "Effacer les effets", t => `effect clear ${t}`],
+  ["Monde", "Jour", () => "time set day"], ["Monde", "Nuit", () => "time set night"], ["Monde", "Soleil", () => "weather clear"],
+  ["Monde", "Pluie", () => "weather rain"], ["Monde", "Orage", () => "weather thunder"], ["Monde", "Sauvegarder", () => "save-all"],
+  ["Monde", "Difficulté : paisible", () => "difficulty peaceful"], ["Monde", "Difficulté : facile", () => "difficulty easy"],
+  ["Monde", "Difficulté : normal", () => "difficulty normal"], ["Monde", "Difficulté : difficile", () => "difficulty hard"],
+  ["Monde", "Garder l’inventaire : OUI", () => "gamerule keep_inventory true"], ["Monde", "Garder l’inventaire : NON", () => "gamerule keep_inventory false"],
+  ["Monde", "Griefing mobs : OFF", () => "gamerule mob_griefing false"], ["Monde", "Griefing mobs : ON", () => "gamerule mob_griefing true"],
+  ["Monde", "Cycle jour/nuit : OFF", () => "gamerule advance_time false"], ["Monde", "Cycle jour/nuit : ON", () => "gamerule advance_time true"],
+  ["Monde", "Tuer tous les mobs", () => "kill @e[type=!player]", { warn: 1 }], ["Monde", "Supprimer objets au sol", () => "kill @e[type=item]"],
+  ["Monde", "Tuer les creepers", () => "kill @e[type=creeper]"],
+  ["Monde", "Taille de la bordure", (t, i) => `worldborder set ${i}`, { ask: "Taille (blocs) :", def: "10000", re: NUM }],
+  ["Monde", "Liste des joueurs", () => "list"], ["Monde", "Seed", () => "seed"], ["Monde", "Whitelist ON", () => "whitelist on"], ["Monde", "Whitelist OFF", () => "whitelist off"],
+  ["Monde", "Spawn du monde ici", t => `execute as ${t} at @s run setworldspawn`, { one: 1 }],
+  GV("Pommes d’or enchantées", "enchanted_golden_apple", 64), GV("Diamants", "diamond", 64), GV("Lingots netherite", "netherite_ingot", 64),
+  GV("Totem d’immortalité", "totem_of_undying", 1), GV("Fusées", "firework_rocket", 64), GV("Steaks", "cooked_beef", 64), GV("Perles d’Ender", "ender_pearl", 16),
+  GV("TNT", "tnt", 64), GV("Obsidienne", "obsidian", 64), GV("Bouteilles d’XP", "experience_bottle", 64),
+  ["Messages", "Écran : message…", (t, i) => [`title ${t} times 10 80 20`, `title ${t} title ${jt(i, "gold")}`], { ask: "Message au milieu de l’écran :", req: 1 }],
+  ["Messages", "Barre d’action…", (t, i) => `title ${t} actionbar ${jt(i, "yellow")}`, { ask: "Message :", req: 1 }],
+  ["Messages", "Annonce dans le chat…", (t, i) => `say ${i}`, { ask: "Message :", req: 1 }],
+  ["Messages", "Effacer le titre", t => `title ${t} clear`],
+  SND("Son : level up", "entity.player.levelup"), SND("Son : creeper", "entity.creeper.primed"), SND("Son : wither", "entity.wither.spawn")
+].map(([cat, label, f, o]) => ({ id: cat + "|" + label, cat, label, f, o: o || {} }));
+
+function adminPanel() {
+  const col = sub("commands"), bg = el("div", "modal"), c = el("div", "card"), tg = el("select"), q = el("input"), pinB = el("div", "box"), all = el("div");
+  c.style.maxWidth = "780px"; all.style.cssText = "display:flex;flex-direction:column;gap:14px";
+  let pins; try { pins = JSON.parse(localStorage.getItem("hmdPins")); } catch (e) { }
+  if (!Array.isArray(pins)) pins = ["TP|Tous → joueur choisi", "Joueurs|Tuer tous les joueurs", "Joueurs|Expulser (kick)", "Joueurs|Soigner", "Monde|Jour", "Monde|Soleil"];
+  const post = (type, arg) => col.add({ type, arg, by: me.name, status: "pending", createdAt: FV.serverTimestamp() });
+  const fill = () => {
+    const v = tg.value || "@a"; tg.textContent = ""; tg.append(new Option("Tous les joueurs", "@a"));
+    if (me.mcName) tg.append(new Option("Tous sauf moi", "@a[name=!" + me.mcName + "]"));
+    lastPlayers.forEach(p => tg.append(new Option(p.name, p.name)));
+    tg.value = [...tg.options].some(o => o.value === v) ? v : "@a";
+  };
+  fill();
+  const un = sub("mc").doc("state").onSnapshot(s => { lastPlayers = (s.data() && s.data().players) || []; fill(); }, () => {});
+  const run = async x => {
+    const t = tg.value, o = x.o; let i = "";
+    if (o.one && !MCRE.test(t)) return toast("Choisis un joueur précis dans « Cible ».");
+    if (o.ask) { const r = prompt(o.ask, o.def || ""); if (r === null) return; i = r.replace(/[\r\n]+/g, " ").trim(); if ((o.re && !o.re.test(i)) || (o.req && !i)) return toast("Valeur invalide."); }
+    if (o.warn && !confirm(x.label + " → " + tg.selectedOptions[0].text + " ?")) return;
+    const out = x.f(t, i); if (!out) return toast("Définis d’abord ton pseudo Minecraft (onglet Serveur).");
+    try { for (const a of [].concat(out)) await post(o.type || "cmd", a); toast("Envoyé : " + x.label); } catch (e) { toast(e.message); }
+  };
+  const savePins = () => { try { localStorage.setItem("hmdPins", JSON.stringify(pins)); } catch (e) { } db.collection("users").doc(me.uid).set({ pins }, { merge: true }).catch(() => { }); };
+  const chip = x => {
+    const w = el("span"), b = el("button", "btn sm ghost", x.label), s = el("button", "btn sm ghost", pins.includes(x.id) ? "★" : "☆");
+    w.style.cssText = "display:inline-flex;gap:2px"; s.setAttribute("aria-label", "Épingler");
+    b.onclick = () => run(x); s.onclick = () => { pins = pins.includes(x.id) ? pins.filter(p => p !== x.id) : pins.concat(x.id); savePins(); render(); };
+    w.append(b, s); return w;
+  };
+  const render = () => {
+    const f = q.value.trim().toLowerCase(), L = CMDS.filter(x => !f || (x.label + " " + x.cat).toLowerCase().includes(f));
+    pinB.textContent = ""; pinB.append(el("b", "", "⭐ Épinglées")); const pr = el("div", "row");
+    CMDS.filter(x => pins.includes(x.id)).forEach(x => pr.append(chip(x)));
+    pinB.append(pr.children.length ? pr : el("p", "sub", "Appuie sur ☆ à côté d’une commande pour l’épingler."));
+    all.textContent = "";
+    [...new Set(L.map(x => x.cat))].forEach(k => { const b = el("div", "box"), r = el("div", "row"); b.append(el("b", "", k), r); L.filter(x => x.cat === k).forEach(x => r.append(chip(x))); all.append(b); });
+  };
+  q.oninput = render; q.placeholder = "Rechercher une commande…";
+  // Message plein écran
+  const mb = el("div", "box"), mt = el("input"), ms = el("input"), mc = el("select"), mg = el("button", "btn", "Afficher au milieu de l’écran");
+  mt.placeholder = "Message (gros titre)"; mt.maxLength = 60; ms.placeholder = "Sous-titre (facultatif)"; ms.maxLength = 80;
+  [["Or", "gold"], ["Rouge", "red"], ["Vert", "green"], ["Aqua", "aqua"], ["Jaune", "yellow"], ["Blanc", "white"]].forEach(([a, b]) => mc.append(new Option(a, b)));
+  mg.onclick = async () => {
+    const m = mt.value.trim(); if (!m) return toast("Écris un message."); const t = tg.value;
+    try { await post("cmd", `title ${t} times 10 80 20`); if (ms.value.trim()) await post("cmd", `title ${t} subtitle ${jt(ms.value.trim())}`); await post("cmd", `title ${t} title ${jt(m, mc.value)}`); toast("Message affiché."); } catch (e) { toast(e.message); }
+  };
+  mb.append(el("b", "", "Message au milieu de l’écran Minecraft"), mt, ms, mc, mg);
+  // Give
+  const gb = el("div", "box"), is = el("select"), n = el("input"), ck = el("input"), lb = el("label", "sub"), gr = el("div", "row"), g1 = el("button", "btn", "Donner"), g2 = el("button", "btn ghost", "Kit complet");
+  ITEMS.forEach((x, k) => is.append(new Option(x[1], k))); n.type = "number"; n.min = 1; n.max = 64; n.value = 1;
+  ck.type = "checkbox"; ck.checked = true; ck.style.width = "auto"; lb.style.cssText = "display:flex;gap:8px;align-items:center"; lb.append(ck, "Enchantements de fou + incassable");
+  g1.onclick = () => post("cmd", giveCmd(tg.value, ITEMS[is.value], Math.min(64, Math.max(1, +n.value || 1)), ck.checked)).then(() => toast("Item donné.")).catch(e => toast(e.message));
+  g2.onclick = async () => { try { for (const x of ITEMS) await post("cmd", giveCmd(tg.value, x, 1, ck.checked)); toast("Kit envoyé."); } catch (e) { toast(e.message); } };
+  gr.append(g1, g2); gb.append(el("b", "", "Give (épée, pioche, armure…)"), is, n, lb, gr);
+  // Assemblage
+  const top = el("div", "row"), x = el("button", "btn ghost", "Fermer"), tl = el("label", "sub", "Cible des commandes");
+  top.style.justifyContent = "space-between"; top.append(el("div", "logo", "Admin panel"), x); tl.style.cssText = "display:flex;flex-direction:column;gap:4px"; tl.append(tg);
+  const close = () => { un(); bg.remove(); }; x.onclick = close; bg.onclick = e => { if (e.target === bg) close(); };
+  c.append(top, tl, pinB, mb, gb, q, all); bg.append(c); document.body.append(bg); render();
+}
+
 /* ---------- Admin ---------- */
 function vAdm(v) {
   if (!adminOK) {
@@ -702,7 +820,8 @@ function vAdm(v) {
   const send = async (type, arg) => { try { await sub("commands").add({ type, arg: arg || "", by: me.name, status: "pending", createdAt: FV.serverTimestamp() }); toast("Commande envoyée."); } catch (x) { toast(x.message); } };
   const q = el("div", "row");
   [["Sauvegarder", () => send("cmd", "save-all")], ["Jour", () => send("cmd", "time set day")], ["Soleil", () => send("cmd", "weather clear")], ["Annonce", () => { const t = prompt("Message à diffuser :"); t && send("cmd", "say " + t); }], ["Éteindre le serveur", () => confirm("Éteindre le serveur ?") && send("stop")]].forEach(([t, f], k) => { const b = el("button", "btn sm " + (k === 4 ? "bad" : "ghost"), t); b.onclick = f; q.append(b); });
-  cb.append(el("b", "", "Actions rapides"), q);
+  const ap = el("button", "btn", "Ouvrir admin panel"); ap.onclick = adminPanel;
+  cb.append(ap, el("b", "", "Actions rapides"), q);
   pb.append(el("b", "", "Joueurs connectés")); const pl = el("div"); pb.append(pl);
   const cf = el("form", "compose"), ci = el("input"); ci.placeholder = "Commande (sans /)"; ci.autocomplete = "off"; cf.style.cssText = "padding:0;background:none;border:0"; cf.append(ci, el("button", "btn", "Exécuter"));
   cf.onsubmit = e => { e.preventDefault(); const t = ci.value.trim().replace(/^\//, ""); if (t) { send("cmd", t); ci.value = ""; } };
